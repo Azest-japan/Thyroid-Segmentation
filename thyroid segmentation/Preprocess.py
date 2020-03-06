@@ -256,7 +256,7 @@ def quality(img):
     ddepth = cv2.CV_8U
     laplacian = cv2.Laplacian(img, ddepth, ksize=3) 
     #disp(laplacian)
-    return laplacian
+    return laplacian.var()
 
 # enhance the quality of cut image using CLAHE method
 def enhanceQ(img):
