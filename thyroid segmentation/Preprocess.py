@@ -109,8 +109,8 @@ def readxml(fxml,imgdict):
                     pts = np.array(v, np.int32)
                     mask = colordict[k]
                     
-                    cv2.polylines(imgdict[ann.attrib['name']],[pts],True,color = mask)
-                    cv2.fillConvexPoly(imgdict[ann.attrib['name']], points=pts, color=mask)
+                    #cv2.polylines(imgdict[ann.attrib['name']],[pts],True,color = mask)
+                    cv2.fillPoly(imgdict[ann.attrib['name']], [pts], color=mask)
         #disp(imgdict[ann.attrib['name']])
         #cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\Ito\\Patient 1\\annotated'+ann.attrib['name'], imgdict[ann.attrib['name']])
     return imgdict      
