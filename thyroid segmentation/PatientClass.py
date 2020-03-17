@@ -113,10 +113,10 @@ def cut_man(img):
 
 
 # Extract the column corresponding to the scale 
-def extscale(pobj,index):
+def extscale(img,top,bottom,left):
     
-    img = pobj.orgimage[index].copy()
-    top,bottom,left = pobj.top, pobj.bottom, pobj.left
+    #img = pobj.orgimage[index].copy()
+    #top,bottom,left = pobj.top, pobj.bottom, pobj.left
     i2 = img.copy()
     
     
