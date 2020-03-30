@@ -439,7 +439,30 @@ def add(i1,i2,k,index):
     i3 = cv2.add(i1,i2)
     cv2.imwrite('D:\\Ito data\\overlap\\'+k+str(index)+'.png',i3)
 
-
+def find_contours(img):
+    img = cv2.imread('C:\\Users\\AZEST-2019-07\\Desktop\\Ito\\Patient 1\\annotatedImage009.jpg')
+    i2 = np.zeros((img.shape[0],img.shape[1]))
+    m = cv2.inRange(img,np.array([20,50,150]),np.array([40,70,170]),img)
+    edged = cv2.Canny(m, 30, 200) 
+    
+    
+    contours, hierarchy = cv2.findContours(edged.copy(),cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    n = len(contours)
+    print("Number of Contours found = " + str(n)) 
+    disp(edged)
+    
+    cl = []
+    for i in range(n):
+        i2 = np.zeros((img.shape[0],img.shape[1]))
+        p,q,r = contours[i].shape
+        contours[i] = contours[i].reshape((p,r))
+        
+        for j in range(p):
+            i2[contours[i][j][1],contours[i][j][0]] = 255
+        disp(i2)
+        cl.append(i2)
+    return cl
+    
 
 # augment the images with their mirror-image 
 def flip(fpath,spath):
@@ -455,6 +478,7 @@ def fusion(img,img2,path,name):
     img3 = cv2.add(7*np.uint8(img/12),5*np.uint8(img2/12))
     img3[img2==0] = img[img2==0]
     cv2.imwrite(path+'\\'+name,img3)
+    return img3
 
 
 # Convert color -> classes and classes -> one-hot vector
