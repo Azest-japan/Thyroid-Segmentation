@@ -85,7 +85,7 @@ def cut(img):
         if all(col_activate[l:l+judge_len] >= min_unique):
             left = l
             for r in range(left, mono_img.shape[1]):
-                if col_activate[r] < min_unique:
+                if all(col_activate[r:r+judge_len] < min_unique):
                     break
             right = r
             break
