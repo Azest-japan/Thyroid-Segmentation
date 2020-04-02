@@ -73,8 +73,8 @@ def cut(img):
             for b in range(top+100, mono_img.shape[0]-judge_len_2):
                 if all(row_activate[b:b+judge_len_2] < min_unique_2):
                     bottom = b
-                    if b < 0.75*(mono_img.shape[0] - top):
-                        bottom = int(0.75*(mono_img.shape[0] - top))
+                    if b < top + 0.75*(mono_img.shape[0] - top):
+                        bottom = int(top+ 0.75*(mono_img.shape[0] - top))
                         
                     break
             break
@@ -86,7 +86,7 @@ def cut(img):
     for l in range(mono_img.shape[1]-judge_len):
         if all(col_activate[l:l+judge_len] >= min_unique):
             left = l
-            for r in range(left+100, mono_img.shape[1]):
+            for r in range(left + int(0.6*(mono_img.shape[1] - left)), mono_img.shape[1]):
                 
                 if all(col_activate[r:r+10] < min_unique) or len(np.where(mono_img[top:bottom,r]<6)[0])>bottom-top-60:
                     #print(r-10,r+10,col_activate[r-10:r+10])
@@ -96,6 +96,7 @@ def cut(img):
             break
 
     return top, bottom, left, right
+
 
 def cut_man(img):
     points = []
