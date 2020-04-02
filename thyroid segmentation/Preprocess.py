@@ -234,22 +234,6 @@ def getdist(img,col,top,bottom,flist):
 #        cv2.destroyAllWindows()
     return peak,np.average(dist)
 
-
-# resizes image based on distance while maintaining aspect ratio
-def img_resize(img,top,bottom,left,right,d_avg):
-#    img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-    img = img[top:bottom,left:right]
-    m,n = img.shape
-    
-    m2,n2 = np.int32(np.round([m*120/d_avg,n*120/d_avg]))
-    print(m,n,d_avg,final_shape,m2,n2)
-    img = cv2.resize(img,(n2,m2))
-    img = cv2.copyMakeBorder(img, int((448-m2)/2), int((448-m2+1)/2), int((512-n2)/2), int((512-n2+1)/2), cv2.BORDER_CONSTANT) 
-
-    assert img.shape == (448,512)
-    
-    return img
-
 # find quality of color image
 def quality(img):
     img = np.uint8(cv2.cvtColor(img,cv2.COLOR_BGR2GRAY))
