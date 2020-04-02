@@ -48,44 +48,49 @@ class Patient:
         
 
 def cut(img):
-    # Sum the color modes, B+G+R, resulting dimension (length,breadth,1) 
-    mono_img = np.sum(img, axis=2)
 
+    mono_img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY) # np.sum(img, axis=2)
+    #bin_img = np.sign(np.where((mono_img>140)&(mono_img<170), 0, mono_img))
+    
     row_activate = np.zeros(mono_img.shape[0])
     col_activate = np.zeros(mono_img.shape[1])
     
     for row in range(mono_img.shape[0]):
-        #Count the number of unique values in each row
         row_activate[row] = len(np.unique(mono_img[row]))
     for col in range(mono_img.shape[1]):
-        #Count the number of unique values in each column
         col_activate[col] = len(np.unique(mono_img[:,col]))
     
     judge_len = 30
     judge_len_2 = 20
-    min_unique_1 = 5
-    min_unique_2 = 30
+    min_unique_1 = 30
+    min_unique_2 = 35
     
     top = 0
     bottom = mono_img.shape[0]-1
     for t in range(mono_img.shape[0]-judge_len):
         if all(row_activate[t:t+judge_len] >= min_unique_1):
             top = t
-            for b in range(top, mono_img.shape[0]-judge_len_2):
+            for b in range(top+100, mono_img.shape[0]-judge_len_2):
                 if all(row_activate[b:b+judge_len_2] < min_unique_2):
+                    bottom = b
+                    if b < 0.75*(mono_img.shape[0] - top):
+                        bottom = int(0.75*(mono_img.shape[0] - top))
+                        
                     break
-            bottom = b
             break
-    
-    judge_len = 30
+
+    judge_len = 30                             
     min_unique = 30
     left = 0
     right = mono_img.shape[1]-1
     for l in range(mono_img.shape[1]-judge_len):
         if all(col_activate[l:l+judge_len] >= min_unique):
             left = l
-            for r in range(left, mono_img.shape[1]):
-                if all(col_activate[r:r+judge_len] < min_unique):
+            for r in range(left+100, mono_img.shape[1]):
+                
+                if all(col_activate[r:r+10] < min_unique) or len(np.where(mono_img[top:bottom,r]<6)[0])>bottom-top-60:
+                    #print(r-10,r+10,col_activate[r-10:r+10])
+                    #disp(img[:,r-10:r+10])
                     break
             right = r
             break
