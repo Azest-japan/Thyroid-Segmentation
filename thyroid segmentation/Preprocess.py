@@ -126,15 +126,17 @@ def load_model2():
     return model
 
 # display any image
+# display any image
 def disp(img,imgl=None):
     
     cv2.imshow('img',img)
-    if not imgl is None:
+    if not imgl is None and type(imgl) is list:
         n = len(imgl)
         for i in range(n):
             if not imgl[i] is None:
                 cv2.imshow('img'+str(i),imgl[i])
-        
+    elif not imgl is None:
+        cv2.imshow('img0',imgl)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
