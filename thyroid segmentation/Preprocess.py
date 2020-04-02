@@ -294,7 +294,7 @@ def img_resize(img,m0=416,n0=512):
         i4 = cv2.resize(img,(n0,int(m*n0/n)))
         m = int(m*n0/n)
         i4 = cv2.copyMakeBorder(i4,int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
-        return [i1,i3,i4],4
+        return [i1,i3,i4]
     
     elif m>=m0-32 and m<=m0 and n>=n0:
         
@@ -303,16 +303,16 @@ def img_resize(img,m0=416,n0=512):
         i4 = cv2.resize(img,(n0,int(m*n0/n)))
         m = int(m*n0/n)
         i4 = cv2.copyMakeBorder(i4,int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
-        return [i2,i4],2
+        return [i2,i4]
         
     elif m>=m0 and n>=n0:
         i4 = cv2.resize(img,(n0,int(m*n0/n)))
         m = int(m*n0/n)
         i4 = cv2.copyMakeBorder(i4,int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
-        return [i4],1
+        return [i4]
     elif m<=m0 and n<=n0:
         i4 = cv2.copyMakeBorder(img,int((m0-m)/2), int((m0-m+1)/2), int((n0-n)/2), int((n0-n+1)/2), cv2.BORDER_CONSTANT)
-        return [i4],1
+        return [i4]
     elif m>m0 and n<n0:
         i0 = cv2.copyMakeBorder(img,0,0, int((n0-n)/2), int((n0-n+1)/2),cv2.BORDER_CONSTANT)
         i1 = i0[0:m0,:]
@@ -321,10 +321,10 @@ def img_resize(img,m0=416,n0=512):
         i4 = cv2.resize(img,(m0,int(n*m0/m)))
         n = int(n*m0/m)
         i4 = cv2.copyMakeBorder(i4,0,0,int((n0-n)/2), int((n0-n+1)/2),cv2.BORDER_CONSTANT)
-        return [i1,i3,i4],4
+        return [i1,i3,i4]
     
     else: 
-        return 0,0
+        return 0
     
 
 def orinfo(img0):
@@ -496,12 +496,8 @@ def find_contours(img):
     
 
 # augment the images with their mirror-image 
-def flip(fpath,spath):
-    for path,subdir,files in os.walk(fpath):
-        for file in files:
-            full_path = path+ '\\' + file
-            flipimg = cv2.flip(cv2.imread(full_path), 1)
-            cv2.imwrite(spath+'\\'+file+'.jpg',flipimg)
+def flip(img):
+    return cv2.flip(img, 1)
 
 
 # mix the annotated output and input image
