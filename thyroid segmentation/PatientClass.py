@@ -97,6 +97,12 @@ def cut(img):
 
     return top, bottom, left, right
 
+def cutpr(img):
+    t,b,l,r = cut(img)
+    if b > t+10 and r > l+10:
+        img = img[t:b,l:r]
+    return img
+    
 
 def cut_man(img):
     points = []
