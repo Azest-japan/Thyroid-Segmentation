@@ -295,6 +295,38 @@ def append_json(rpath,name,val,wpath=None):
     
     return data
 
+# resizes image based on distance while maintaining aspect ratio
+def img_resize(img,m0=416,n0=512):
+
+    m,n = img.shape
+    print(m,n)
+    if m<=384 and n>512:
+        i0 = cv2.copyMakeBorder(img, int((416-m)/2), int((416-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        i1 = i0[:,0:512]
+        i2 = i0[:,int((n-512)/2):512+int((n-512)/2)]
+        i3 = i0[:,n-512:n]
+        i4 = cv2.resize(img,(512,int(m*512/n)))
+        i4 = cv2.copyMakeBorder(i4,int((416-m)/2), int((416-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        return [i1,i2,i3,i4],4
+    
+    elif m>=384 and m<416 and n>512:
+        print('haha')
+        i0 = cv2.copyMakeBorder(img, int((416-m)/2), int((416-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        i2 = i0[:,int((n-512)/2):512+int((n-512)/2)]
+        i4 = cv2.resize(img,(512,int(m*512/n)))
+        i4 = cv2.copyMakeBorder(i4,int((416-m)/2), int((416-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        return [i2,i4],2
+        
+    elif m>416 and n>512:
+        i4 = cv2.resize(img,(512,int(m*512/n)))
+        i4 = cv2.copyMakeBorder(i4,int((416-m)/2), int((416-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        return [i4],1
+    elif m<384 and n<512:
+        i4 = cv2.copyMakeBorder(i4,int((416-m)/2), int((416-m+1)/2), int((512-n)/2), int((512-n+1)/2), cv2.BORDER_CONSTANT)
+        return [i4],1
+    
+    else: 
+        return 0,0
 
 def orinfo(img0):
     img = np.uint8(cv2.cvtColor(img0,cv2.COLOR_BGR2GRAY))
