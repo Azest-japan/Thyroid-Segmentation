@@ -12,6 +12,7 @@ import seaborn as sns
 from tensorflow import keras
 import numpy as np
 import scipy
+import cv2
 from tensorflow.keras.models import *
 from tensorflow.keras.metrics import *
 from tensorflow.keras.layers import *
@@ -25,6 +26,7 @@ from sklearn.metrics import f1_score, confusion_matrix, precision_score, recall_
 from tensorflow.keras.callbacks import *
 from tensorflow.keras.applications import vgg16
 from tensorflow.keras.layers import Cropping2D
+from tensorflow.keras.regularizers import l2
 import segmentation_models as sm
 
 #Reference libraries 
