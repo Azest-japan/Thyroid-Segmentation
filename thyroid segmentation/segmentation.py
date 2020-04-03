@@ -81,11 +81,74 @@ def f1(y_true, y_pred):
     
     return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
+def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,activation='relu'):
+    
+    conv = Conv2D(nf,
+                  kernel_size=Ksize,
+                  strides=strides,
+                  padding=padding,
+                  kernel_initializer='he_normal',
+                  kernel_regularizer=l2(1e-4))
+    
+    x = inp
+    
+    if BN_first:
+        if BN:
+            x = BatchNormalization()(x)
+        if activation is not None:
+            x = Activation(activation)(x)
+        x = conv(x)
+    else:
+        x = conv(x)
+        if BN:
+            x = BatchNormalization()(x)
+        if activation is not None:
+            x = Activation(activation)(x)
+    return x
+
+
+def resnet(input_shape,num_classes=2,nf=32,nb=4):
+
+    Ksize=3
+    padding='same'
+    strides=1
+    
+    conv = Conv2D(nf,
+                  kernel_size=Ksize,
+                  strides=strides,
+                  padding=padding,
+                  kernel_initializer='he_normal')
+    
+    
+    inputs = Input(input_shape)
+    x = resunit(inputs,nf=nf,Ksize=3,padding='same',strides=1,BN_first=False,activation='relu')
+    x = conv(x)
+    x = add([inputs, x])
+    
+    for i in range(nb):
+        nf = 2*nf
+        y = resunit(x,nf,strides=2)
+        y = resunit(y,nf)
+        x = Conv2D(nf,kernel_size=1,padding='same',strides=2)(x)
+        x = add([x,y])
+    
+    x = AveragePooling2D(pool_size=2)(x)
+    y = Flatten()(x)
+    outputs = Dense(num_classes,
+                    activation='softmax',
+                    kernel_initializer='he_normal')(y)
+
+    # Instantiate model.
+    model = Model(inputs=inputs, outputs=outputs)
+    return model
+
+
 def train():
     tensorboard = TensorBoard(log_dir='C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\logs\\tb1')
     
-    model = sm.Unet('vgg16', input_shape=(448, 512, 3), classes = 5, activation='sigmoid',encoder_weights='imagenet')
-        
+    #model = sm.Unet('vgg16', input_shape=(448, 512, 3), classes = 5, activation='sigmoid',encoder_weights='imagenet')
+    model = resnet(input_shape=input_shape)
+    #print(model.summary())
     opt = keras.optimizers.Adam(learning_rate=0.001)
     
     loss=sm.losses.JaccardLoss()
