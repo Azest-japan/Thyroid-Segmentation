@@ -99,7 +99,7 @@ def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,a
     return x
 
 
-def resnet(input_shape,n_classes=2,nf=32,nb=4):
+def resnet(input_shape,n_classes=2,nf=32,nb=4,net='unet'):
 
     Ksize=3
     padding='same'
@@ -113,6 +113,7 @@ def resnet(input_shape,n_classes=2,nf=32,nb=4):
     x = Conv2D(nf,kernel_size=3,strides=1,padding='same',kernel_initializer='he_normal', kernel_regularizer=l2(1e-4), name='C01')(x)
     x = add([inputs, x],name='A0')
     ld['A0'] = x
+    
     for i in range(nb):
         nf = 2*nf
         y = resunit(x,nf,strides=2,sno=str((i+1)*10))
@@ -121,28 +122,30 @@ def resnet(input_shape,n_classes=2,nf=32,nb=4):
         x = add([x,y],name='A0'+str(i+1))
         ld['A'+str(i+1)] = x
     
-#    x1 = AveragePooling2D(pool_size=2)(x)
-#    y1 = Flatten()(x1)
-#    outputs = Dense(num_classes,
-#                    activation='softmax',
-#                    kernel_initializer='he_normal')(y1)
+    if net=='resnet':
+        x1 = AveragePooling2D(pool_size=2)(x)
+        y1 = Flatten()(x1)
+        outputs = Dense(1,
+                        activation='sigmoid',
+                        kernel_initializer='he_normal')(y1)
         
-    for i in range(nb):
-        nf = int(nf/2)
-        if i<2:
-            x = Conv2DTranspose(nf, kernel_size=Ksize, strides=2, padding=padding, kernel_initializer='he_normal')(x)
-        else:
-            x = UpSampling2D((2,2))(x)
-        x = concatenate([ld['A'+str(nb-i-1)],x],axis=3,name='CT'+str(i))
-        y = resunit(x,nf,sno=str((i+5)*10))
-        y = resunit(y,nf,sno=str((i+5)*10+1))
-        x = Conv2D(nf,kernel_size=1,padding='same',strides=1,name='1C'+str((i+5)*10))(x)
-        x = add([x,y],name='A0'+str(i+5))
-    
-    
-    x = Conv2D(n_classes,kernel_size=1,padding='same',strides=1,name='out')(x)
+    elif net == 'unet':
+        for i in range(nb):
+            nf = int(nf/2)
+            if i<2:
+                x = Conv2DTranspose(nf, kernel_size=Ksize, strides=2, padding=padding, kernel_initializer='he_normal')(x)
+            else:
+                x = UpSampling2D((2,2))(x)
+            x = concatenate([ld['A'+str(nb-i-1)],x],axis=3,name='CT'+str(i))
+            y = resunit(x,nf,sno=str((i+5)*10))
+            y = resunit(y,nf,sno=str((i+5)*10+1))
+            x = Conv2D(nf,kernel_size=1,padding='same',strides=1,name='1C'+str((i+5)*10))(x)
+            x = add([x,y],name='A0'+str(i+5))
+        
+        
+        outputs = Conv2D(n_classes,kernel_size=1,padding='same',strides=1,name='out')(x)
     # Instantiate model.
-    model = Model(inputs=inputs, outputs=x)
+    model = Model(inputs=inputs, outputs=outputs)
     return model
 
 
@@ -150,8 +153,9 @@ def resnet(input_shape,n_classes=2,nf=32,nb=4):
 def train():
     #tensorboard = TensorBoard(log_dir='C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\logs\\tb1')
     
-    model = resnet(input_shape=input_shape)
+    model = resnet(input_shape=input_shape,net = 'resnet')
     print(model.summary())
+    return model
     # opt = keras.optimizers.Adam(learning_rate=0.001)
     
     # loss=sm.losses.JaccardLoss()
@@ -163,8 +167,10 @@ def train():
     #                                monitor = 'val_accuracy',
     #                                verbose=1, 
     #                                save_best_only=True)
+    
+    # model.save('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\tl.h5')
 
 
-train()
+model = train()
 
 
