@@ -25,7 +25,7 @@ from tensorflow.keras.datasets import mnist
 from tensorflow.keras.layers import Cropping2D
 from tensorflow.keras.regularizers import l2
 import cv2
-
+from dataprep import *
 
 #Reference libraries 
 #sklearn.model_selection -> Gridsearch, train_test_split
@@ -47,17 +47,35 @@ s_size = (2, 2)    # stride size
 batch_size = 32
 
 fpath = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\Selected'
+fpath2 = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\SelectedP'
 fxml = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\annotations\\final2.xml'
+rjson = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\orientation_json.txt'
+imgdict = read_json(rjson)
+xt,yt = [],[]
+
+def load(fpath):
+    global xt,yt,imgdict
+    for path,subdir,files in os.walk(fpath):
+        for file in files:
+            full_path = path+ '\\' + file
+            if not 'capture' in file.lower(): 
+                img = cv2.imread(full_path)
+                img = cutpr(img)/255
+                
+                y = imgdict[file]
+                l = img_resize(img)
+                [xt.append(i) for i in l]
+                [xt.append(flip(i)) for i in l]
+                [yt.append(y) for _ in range(2*len(l))]
 
 
-def load(fpath,fxml):
-    xtrain,xtest,ytrain,ytest = None,None,None,None
-    
-    return xtrain,xtest,ytrain,ytest
+#load(fpath)
+#load(fpath2)
 
-xtrain,xtest,ytrain,ytest = load(fpath,fxml)
+
 
 def save_model(model):    
+    model.save('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\tl.h5')
     json_string = model.to_json()
     open('models.json', 'w').write(json_string)
     
@@ -99,7 +117,7 @@ def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,a
     return x
 
 
-def resnet(input_shape,n_classes=2,nf=32,nb=4,net='unet'):
+def resnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
 
     Ksize=3
     padding='same'
@@ -108,7 +126,7 @@ def resnet(input_shape,n_classes=2,nf=32,nb=4,net='unet'):
     nf = 32
     
     
-    inputs = Input(input_shape)
+    inputs = Input(input_shape,name='inp')
     x = resunit(inputs,nf=nf,Ksize=3,padding='same',strides=1,BN_first=False,activation='relu',sno='00')
     x = Conv2D(nf,kernel_size=3,strides=1,padding='same',kernel_initializer='he_normal', kernel_regularizer=l2(1e-4), name='C01')(x)
     x = add([inputs, x],name='A0')
@@ -127,8 +145,8 @@ def resnet(input_shape,n_classes=2,nf=32,nb=4,net='unet'):
         y1 = Flatten()(x1)
         outputs = Dense(1,
                         activation='sigmoid',
-                        kernel_initializer='he_normal')(y1)
-        
+                        kernel_initializer='he_normal',name='out')(y1)
+    
     elif net == 'unet':
         for i in range(nb):
             nf = int(nf/2)
@@ -145,15 +163,39 @@ def resnet(input_shape,n_classes=2,nf=32,nb=4,net='unet'):
         
         outputs = Conv2D(n_classes,kernel_size=1,padding='same',strides=1,name='out')(x)
     # Instantiate model.
-    model = Model(inputs=inputs, outputs=outputs)
+    model = Model(inputs=inputs, outputs=outputs, name='resnet')
     return model
 
 
+def transfer(model,input_shape,n_classes=5,nb=4):
     
+    x = model.layers[37].output
+    nf = 512
+    Ksize=3
+    padding='same'
+    strides=1
+    
+    for i in range(nb):
+        nf = int(nf/2)
+        if i<2:
+            x = Conv2DTranspose(nf, kernel_size=Ksize, strides=2, padding=padding, kernel_initializer='he_normal')(x)
+        else:
+            x = UpSampling2D((2,2))(x)
+        x = concatenate([model.layers[28-8*i].output,x],axis=3,name='CT'+str(i))
+        y = resunit(x,nf,sno=str((i+5)*10))
+        y = resunit(y,nf,sno=str((i+5)*10+1))
+        x = Conv2D(nf,kernel_size=1,padding='same',strides=1,name='1C'+str((i+5)*10))(x)
+        x = add([x,y],name='A0'+str(i+5))
+  
+    m2 = Model(inputs=model.input, outputs=x,name='unet')
+    print(m2.summary())
+    return m2
+    
+
 def train():
     #tensorboard = TensorBoard(log_dir='C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\logs\\tb1')
     
-    model = resnet(input_shape=input_shape,net = 'resnet')
+    model = resnet(input_shape=input_shape,net = 'unet')
     print(model.summary())
     return model
     # opt = keras.optimizers.Adam(learning_rate=0.001)
@@ -171,6 +213,7 @@ def train():
     # model.save('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\tl.h5')
 
 
-model = train()
+
+
 
 
