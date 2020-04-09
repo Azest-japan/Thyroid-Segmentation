@@ -187,6 +187,7 @@ def resnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
     model = Model(inputs=inputs, outputs=outputs, name=net)
     return model
 
+# integrate the learned resnet encoder into unet
 def transfer(model,input_shape,n_classes=5,nb=4):
     
     x = model.layers[37].output
