@@ -72,6 +72,26 @@ def load(fpath):
 #load(fpath)
 #load(fpath2)
 
+# self defined F1 metric
+def f1(y_true, y_pred):
+    true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+    
+    def recall(y_true, y_pred):
+        
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
+
+    def precision(y_true, y_pred):
+        
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+    
+    precision = precision(y_true, y_pred)
+    recall = recall(y_true, y_pred)
+    
+    return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
 
 def save_model(model):    
@@ -163,7 +183,7 @@ def resnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
         
         outputs = Conv2D(n_classes,kernel_size=1,padding='same',strides=1,name='out')(x)
     # Instantiate model.
-    model = Model(inputs=inputs, outputs=outputs, name='resnet')
+    model = Model(inputs=inputs, outputs=outputs, name=net)
     return model
 
 
@@ -195,15 +215,14 @@ def transfer(model,input_shape,n_classes=5,nb=4):
 def train():
     #tensorboard = TensorBoard(log_dir='C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\logs\\tb1')
     
-    model = resnet(input_shape=input_shape,net = 'unet')
-    print(model.summary())
-    return model
-    # opt = keras.optimizers.Adam(learning_rate=0.001)
+    model = resnet(input_shape=input_shape,net = 'resnet')
+    
+    opt = keras.optimizers.Adam(learning_rate=0.001)
     
     # loss=sm.losses.JaccardLoss()
-    # model.compile(loss=loss,
-    #                   optimizer=opt,
-    #                   metrics=[sm.metrics.iou_score,f1])
+    model.compile(loss=tf.keras.losses.binary_crossentropy, optimizer=opt, metrics=['accuracy',f1])
+    print(model.summary())
+    
     
     # checkpointer = ModelCheckpoint(filepath="C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\best_weights.hdf5", 
     #                                monitor = 'val_accuracy',
@@ -212,7 +231,7 @@ def train():
     
     # model.save('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\tl.h5')
 
-
+train()
 
 
 
