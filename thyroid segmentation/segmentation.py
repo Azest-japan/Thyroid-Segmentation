@@ -25,7 +25,7 @@ from tensorflow.keras.datasets import mnist
 from tensorflow.keras.layers import Cropping2D
 from tensorflow.keras.regularizers import l2
 import cv2
-from dataprep import *
+#from dataprep import *
 
 #Reference libraries 
 #sklearn.model_selection -> Gridsearch, train_test_split
@@ -50,7 +50,7 @@ fpath = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\Selected'
 fpath2 = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\SelectedP'
 fxml = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\annotations\\final2.xml'
 rjson = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\orientation_json.txt'
-imgdict = read_json(rjson)
+#imgdict = read_json(rjson)
 xt,yt = [],[]
 
 # load the data from path
