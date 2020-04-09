@@ -21,6 +21,8 @@ from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.preprocessing.image import ImageDataGenerator 
 from tensorflow.keras.models import model_from_json, load_model
 import tqdm
+import csv
+import xml.etree.ElementTree as et
 
 base = 'D:\\Ito data\\'
 
@@ -100,72 +102,148 @@ def load_model2():
     return model
 
 #imgj = loadimg(jpg_path,'jpg')
-def disp(img):
-    cv2.imshow('img',img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows(0)
 
-
-#segments the image based on the input points
-def segment(img):
-    points = []
-    def mousepoint(event,x,y,flags,param): 
-        global points
-        if event == cv2.EVENT_LBUTTONDOWN:
-            print(x,y,img[y,x],'  --------')
-            cv2.circle(img,(x,y),1,(255,255,255),-1)
-            points.append((x,y))
-            
+def disp(img,imgl=None):
     
-    editimg = None
-    def fill(img):
-        global points,maskcolor,editimg
-        editimg = np.uint8(np.zeros((img.shape[0],img.shape[1])))
-        while(1):
-            cv2.namedWindow('image')
-            cv2.setMouseCallback('image',mousepoint)
-            points = []
-            while(1):
-                cv2.imshow('image',img)
-                if cv2.waitKey(20) & 0xFF == 27:
-                    #cv2.destroyAllWindows()
-                    break
-            cv2.destroyAllWindows()
-            if points != []:
-                pts = np.array(points, np.int32)
-                pts = pts.reshape((-1,1,2))
-                
-                mask = input('Enter the value ')
-                clr = maskcolor[int(mask)]
-                x = int(clr[0])
-                y = int(clr[1])
-                z = int(clr[2])
-                
-                cv2.polylines(img,[pts],True,color = (x,y,z))
-                cv2.polylines(editimg,[pts],True,color = int(mask))
-                cv2.fillConvexPoly(img, points=np.array(points), color=(x,y,z))
-                cv2.fillConvexPoly(editimg, points=np.array(points), color=int(mask))
-                
-                
-                print('Area ',cv2.contourArea(pts,oriented = False))
-                print('Length ',cv2.arcLength(pts,closed=True))
-                cv2.imshow('image',img)
-                if cv2.waitKey(20) & 0xFF == 27:
-                    cv2.destroyAllWindows()
-                    break
-            else:
-                cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\demo.png',img)
-                cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\demo2.png',editimg)
-                cv2.destroyAllWindows()
-                break
-    fill(img)
-
-
+    cv2.imshow('img',img)
+    if not imgl is None:
+        n = len(imgl)
+        for i in range(n):
+            if not imgl[i] is None:
+                cv2.imshow('img'+str(i),imgl[i])
+        
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 #cv2.imshow('image2',editimg*30)
 #cv2.waitKey(0)
 #cv2.destroyAllWindows()
+
+def gray(img):
+    return np.uint8(cv2.cvtColor(img,cv2.COLOR_BGR2GRAY))
+
+def orinfo(img0,name):
+    img = np.uint8(cv2.cvtColor(img0,cv2.COLOR_BGR2GRAY))
+
+    c = cv2.Canny(img,750,800)
+    kernel = np.ones((50,50),np.float32)/500
+    dst = cv2.filter2D(c,-1,kernel,borderType = cv2.BORDER_WRAP)
     
+    ct = np.int32(np.mean(np.where(dst==np.max(dst)),axis=-1))
+    #print(ct,ct[0]/img.shape[0],ct[1]/img.shape[1])
+    if ct[0]/img.shape[0]<0.75 or ct[1]/img.shape[1]<0.75: ######
+        #print(name,0)
+        return 1
+    
+    dst = np.uint8(255/np.max(dst)*dst)
+    #disp(img,[dst])
+    t,b,l,r = 0,0,0,0
+    s = 0
+    while(s<4):
+        s = 0
+        if  dst[ct[0]-t,ct[1]] >= 120:
+            t += 1
+        else:
+            s += 1
+        if  dst.shape[0]>ct[0]+b and dst[ct[0]+b,ct[1]] >= 120:
+            b += 1
+        else:
+            s += 1
+        if  dst[ct[0],ct[1]-l] >= 100:
+            l += 1
+        else:
+            s += 1
+        if  dst.shape[1]>ct[1]+r and dst[ct[0],ct[1]+r] >= 100:
+            r += 1
+        else:
+            s += 1
+    
+    #print(t,b,l,r)
+    #print(np.min([t,b,l,r]),np.sum([t,b,l,r]),t,b,l,r)
+    if np.min([t,b,l,r])<=12 or (np.min([t,b,l,r])<20 and (np.max([t,b,l,r])>45 or np.sum([t,b,l,r])<=115)):
+        return 1
+    
+    sc = img0[ct[0]-t:ct[0]+b,ct[1]-l:ct[1]+r].copy()
+    m,n,d = sc.shape
+    sh = np.uint8(np.zeros((sc.shape[0],sc.shape[1])))
+    
+    for i in range(m):
+        for j in range(n):
+            bl,gr,rd = sc[i,j]
+            if (not (rd<100 or gr<100)) and ((2*bl < gr and 2*bl < rd) or (rd<200 and rd<bl-30 and rd<gr-10)):
+                sh[i,j] = 255
+    #gc.collect()
+    
+    #disp(sc)
+    
+    if np.max(sh.sum(axis=0)) > np.max(sh.sum(axis=1)):
+        # cd = np.argmax(sh.sum(axis=0))   
+        # sc0 = np.uint8(cv2.cvtColor(sc,cv2.COLOR_BGR2GRAY))
+        # sc0[sh>0] = 0
+        # dmin = 100
+        # cmax = int(sc.shape[1]/2)-3
+        
+        # for i in range(int(sc.shape[1]/2)-4,int(sc.shape[1]/2)+4):
+        #     col = len(sc0[:,i])
+            
+        #     p = 0
+        #     n = 0
+        #     j = 10
+        #     while j<col:
+        #         #print(i,' ',j,' ',sc0[j,i],' ',sc0[j-2,i],' ',p,' ',n,' ',cmax,' ',dmin)
+                
+        #         if (sc0[j,i] > 120) and (sc0[j-2,i] < 36) :
+        #             n += 1
+        #             if n == 2:
+        #                 p = j
+        #             elif n==3:
+        #                 if j-p < dmin:
+        #                     dmin = j-p
+        #                     cmax = i
+        #                 #print('break ',i,' ',j,' ',sc0[j,i],' ',sc0[j-2,i],' ',p,' ',n,' ',cmax,' ',dmin,' ',j-p)
+        #                 break
+        #             j += 3
+        #         j += 1
+                
+        #print(name,' Vertical',cd,cmax,abs(cd-cmax))
+        #sc[:,cd] = [50,200,50]
+        #sc[:,cmax] = [200,100,50]
+        #disp(sc)
+        return 0 #,int(cd),int(cmax)
+    
+    else:
+        cd = np.argmax(sh.sum(axis=1))
+        if cd==0:
+            print(name,t,b,l,r, ct[0]/img.shape[0], ct[1]/img.shape[1],np.sum([t,b,l,r]),np.min([t,b,l,r]),ct)
+            #disp(img,[dst,sc])
+        #sc[cd,:] = [50,200,50]
+        #disp(sc)
+        #print(name,' Horizontal')
+        return 1 #,int(cd),-1
+
+def write_csv(wpath,data):
+    with open(wpath, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerows(data)
+
+def write_json(wpath,data):
+    with open(wpath, 'w') as outfile:
+        json.dump(data, outfile)
+    
+    
+def read_json(rpath):
+    with open(rpath) as json_file:
+        data = json.load(json_file)
+        return data
+
+def append_json(rpath,name,val,wpath=None):
+    if wpath == None:
+        wpath = rpath
+    data = read_json(rpath)
+    data[name] = val
+    write_json(wpath,data)
+    
+    return data
 
 def cut_alt(img):
     e1 = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
@@ -214,79 +292,60 @@ def cut_alt(img):
 
 def cut(img):
 
-    mono_img = np.sum(img, axis=2)
+    mono_img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY) # np.sum(img, axis=2)
+    #bin_img = np.sign(np.where((mono_img>140)&(mono_img<170), 0, mono_img))
     
+    row_activate = np.zeros(mono_img.shape[0])
     col_activate = np.zeros(mono_img.shape[1])
     
-    
+    for row in range(mono_img.shape[0]):
+        row_activate[row] = len(np.unique(mono_img[row]))
     for col in range(mono_img.shape[1]):
-        #Count the number of unique values in each column
         col_activate[col] = len(np.unique(mono_img[:,col]))
-        
+    
     judge_len = 30
+    judge_len_2 = 20
+    min_unique_1 = 30
+    min_unique_2 = 35
+    
+    top = 0
+    bottom = mono_img.shape[0]-1
+    for t in range(mono_img.shape[0]-judge_len):
+        if all(row_activate[t:t+judge_len] >= min_unique_1):
+            top = t
+            for b in range(top+100, mono_img.shape[0]-judge_len_2):
+                if all(row_activate[b:b+judge_len_2] < min_unique_2):
+                    bottom = b
+                    if b < top + 0.75*(mono_img.shape[0] - top):
+                        bottom = int(top+ 0.75*(mono_img.shape[0] - top))
+                        
+                    break
+            break
+
+    judge_len = 30                             
     min_unique = 30
     left = 0
     right = mono_img.shape[1]-1
     for l in range(mono_img.shape[1]-judge_len):
         if all(col_activate[l:l+judge_len] >= min_unique):
             left = l
-            for r in range(left, mono_img.shape[1]):
-                if col_activate[r] < min_unique:
+            for r in range(left + int(0.6*(mono_img.shape[1] - left)), mono_img.shape[1]):
+                
+                if all(col_activate[r:r+10] < min_unique) or len(np.where(mono_img[top:bottom,r]<6)[0])>bottom-top-60:
+                    #print(r-10,r+10,col_activate[r-10:r+10])
+                    #disp(img[:,r-10:r+10])
                     break
             right = r
             break
-    
-    mono_img = np.sum(img[:,left:right,:], axis=2)
-    row_activate = np.zeros(mono_img.shape[0])
-    
-    for row in range(mono_img.shape[0]):
-        #Count the number of unique values in each row
-        row_activate[row] = len(np.unique(mono_img[row]))
-    judge_len = 30
-    judge_len_2 = 20
-    min_unique_1 = 5
-    min_unique_2 = 20
-    
-    top = 0
-    bottom = mono_img.shape[0]-1
-    
-    for t in range(mono_img.shape[0]-judge_len):
-        if all(row_activate[t:t+judge_len] >= min_unique_1):
-            top = t
-            for b in range(top, mono_img.shape[0]-judge_len_2):
-                if all(row_activate[b:b+judge_len_2] < min_unique_2):
-                    break
-            bottom = b
-            break
-    
-#    cut_img = img[top:bottom, left:right]
-    
-#    cv2.imshow('image',cut_img)
-#    cv2.imshow('org',img)
-#    cv2.waitKey(0)
-#    cv2.destroyAllWindows()
-    return top, bottom, left, right
-# _ 
-def cut_man(img):
-    points = []
-    def mousepoint(event,x,y,flags,param): 
-        if event == cv2.EVENT_LBUTTONDOWN:
-            print(x,y,img[y,x],'  --------')
-            cv2.circle(img,(x,y),1,(255,255,255),-1)
-            points.append((x,y))
-    cv2.namedWindow('image')
-    cv2.setMouseCallback('image',mousepoint)
-    
-    while(1):
-        cv2.imshow('image',img)
-        if cv2.waitKey(20) & 0xFF == 27:
-            #cv2.destroyAllWindows()
-            break
-    cv2.destroyAllWindows()
-    # top, bottom, left, right
-    return points[0][1],points[1][1],points[0][0],points[1][0]
-    
 
+
+    return top, bottom, left, right
+
+def cutpr(img):
+    t,b,l,r = cut(img)
+    if b > t+100 and r > l+100:
+        img = img[t:b,l:r]
+    return gray(img)
 
 
 # Extract the column corresponding to the scale 
@@ -366,7 +425,7 @@ def scale(img,top,bottom,left):
         cv2.imshow('scale',np.concatenate((np.concatenate((np.zeros([ll[0][0]+30-max(top-10,0),100]),img[max(top-10,0):ll[0][0]+30,col[-1]:col[-1]+1]),axis=1),np.zeros([ll[0][0]+30-max(top-10,0),100])),axis=1))
         #cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\scale.png',cv2.resize(img[0:row+15,col-32:col+32], dsize=(128,2*(row+15))))
     
-    i2[:,col] = [0,100,255]
+    i2[:,col] = [100,50,255]
     cv2.imshow('org',i2[max(top-10,0):ll[0][0]+30,:left])
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -442,50 +501,113 @@ def extract(img,col,top,bottom,ll):
 #        cv2.destroyAllWindows()
     return peak,dist
 
+def readxml(fxml,imgdict):
+    colordict = {'Thyroid':(100,200,0),'Trachea':(100,200,200),'Nodule':(30,60,160),'Benign':(30,60,160),'Papillary':(200,30,220), 'Malignant':(200,30,220)}
+    labeldict = {'Thyroid':0,'Nodule':1,'Benign':2,'Malignant':3}
+    tree = et.parse(fxml)
+    root = tree.getroot()
+    d = {}
+    
+    for ann in root.iter('image'):
+        d = {}
+        #print(ann.attrib['name'])
+        for el in ann.findall('polygon'):
+            lab = el.attrib['label']
+            points = el.attrib['points'].split(';')
+            p = [(float(i.split(',')[0]),float(i.split(',')[1])) for i in points]
+            if not lab in d.keys():
+                d[lab] = []
+            d[lab].append(p)
+            
+        i3 = imgdict[ann.attrib['name']]
+        i2 = np.zeros(i3.shape)
+        for k in ['Thyroid','Nodule','Benign','Malignant','Papillary']:
+            if k in d.keys():
+                for v in d[k]:
+                    pts = np.array(v, np.int32)
+                    mask = colordict[k]
+                    
+                    #cv2.polylines(imgdict[ann.attrib['name']],[pts],True,color = mask)
+                    cv2.fillPoly(i2, [pts], color=mask)
+        
+        
+        i3 = np.hstack((i3,cv2.add(7*np.uint8(i3/12),5*np.uint8(i2/12))))
+        #disp(imgdict[ann.attrib['name']])
+        cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\Ito\\Comp\\Papillary\\a_'+ann.attrib['name'], i3)
+        
+
 
 # resizes image based on distance while maintaining aspect ratio
-def img_resize(img,d_avg,final_shape):
-    
+def img_resize(img,m0=320,n0=512):
+
     m,n = img.shape
-    m2,n2 = np.int32(np.round([m*120/d_avg,n*120/d_avg]))
-    img = cv2.resize(img,(n2,m2))
-    img = cv2.copyMakeBorder(img, int((final_shape-m2)/2), int((final_shape-m2+1)/2), int((final_shape-n2)/2), int((final_shape-n2+1)/2), cv2.BORDER_CONSTANT) 
+    #print(m,n)
     
-    assert img.shape == (final_shape,final_shape)
+    if m<m0-32 and n>n0+32:
+        i0 = cv2.copyMakeBorder(img, int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        i1 = i0[:,0:n0]
+        i3 = i0[:,n-n0:n]
+        i4 = cv2.resize(img,(n0,int(m*n0/n)))
+        m = int(m*n0/n)
+        i4 = cv2.copyMakeBorder(i4,int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        return [i1,i3,i4]
     
-    return img
+    elif m<m0-32 and n>=n0:
+        i0 = cv2.copyMakeBorder(img, int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        i2 = i0[:,int((n-n0)/2):n0+int((n-n0)/2)]
+        i4 = cv2.resize(img,(n0,int(m*n0/n)))
+        m = int(m*n0/n)
+        i4 = cv2.copyMakeBorder(i4,int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        return [i2,i4]
+    
+    elif m>=m0-32 and m<=m0 and n>=n0 and n<n0+32:
+        
+        i4 = cv2.resize(img,(n0,int(m*n0/n)))
+        m = int(m*n0/n)
+        i4 = cv2.copyMakeBorder(i4,int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        return [i4]
+    
+    elif m>=m0-32 and m<=m0 and n>=n0:
+        
+        i0 = cv2.copyMakeBorder(img, int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        i2 = i0[:,int((n-n0)/2):n0+int((n-n0)/2)]
+        i4 = cv2.resize(img,(n0,int(m*n0/n)))
+        m = int(m*n0/n)
+        i4 = cv2.copyMakeBorder(i4,int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        return [i2,i4]
+        
+    elif m>=m0 and n>=n0:
+        if m*n0<n*m0:
+            i4 = cv2.resize(img,(n0,int(m*n0/n)))
+            m = int(m*n0/n)
+            i4 = cv2.copyMakeBorder(i4,int((m0-m)/2), int((m0-m+1)/2),0,0,cv2.BORDER_CONSTANT)
+        else:
+            i4 = cv2.resize(img,(int(m0*n/m),m0))
+            n = int(m0*n/m)
+            i4 = cv2.copyMakeBorder(i4,0,0,int((n0-n)/2), int((n0-n+1)/2),cv2.BORDER_CONSTANT)
+        return [i4]
+    
+    elif m<=m0 and n<=n0:
+        i4 = cv2.copyMakeBorder(img,int((m0-m)/2), int((m0-m+1)/2), int((n0-n)/2), int((n0-n+1)/2), cv2.BORDER_CONSTANT)
+        return [i4]
+    
+    elif m>m0 and n<n0:
+        i0 = cv2.copyMakeBorder(img,0,0, int((n0-n)/2), int((n0-n+1)/2),cv2.BORDER_CONSTANT)
+        i1 = i0[0:m0,:]
+        #i2 = i0[int((m-m0)/2):m0+int((m-m0)/2),:]
+        i3 = i0[m-m0:m,:]
+        i4 = cv2.resize(img,(int(n*m0/m),m0))
+        n = int(n*m0/m)
+        i4 = cv2.copyMakeBorder(i4,0,0,int((n0-n)/2), int((n0-n+1)/2),cv2.BORDER_CONSTANT)
+        return [i1,i3,i4]
+    
+    else: 
+        return 0
 
 # augment the images with their mirror-image 
-def flip(fpath):
-    for path,subdir,files in os.walk(fpath):
-        for file in files:
-            full_path = path+ '\\' + file
-            flipimg = cv2.flip(cv2.imread(full_path), 1)
-            cv2.imwrite('.jpg',flipimg)
+def flip(img):
+    return cv2.flip(img, 1)
     
-
-
-#path = 'D:\\Ito data\\AI2\\01\\Image003.jpg'
-#img = cv2.imread(path)[40:-40,:]
-#
-#
-#top,bottom,left,right = cut(img)
-#print(bottom-top,right-left)
-#print(img.shape,top,bottom,left)
-#
-#
-#col,ll = scale(img,top,bottom,left)
-## Convert image to gray scale
-#img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-#peak,dist = extract(img.copy(),col,top,bottom,ll)
-#d_avg = np.average(dist)
-#print(d_avg)
-#
-#img = img_resize(img[top:bottom,left:right],d_avg,512)
-#cv2.imshow('img',img)
-#cv2.waitKey(0)
-#cv2.destroyAllWindows()
-
 
 # extract the outline of the annotated image
 def create_image(imgd,img,color,k,index,c=5):
@@ -515,7 +637,7 @@ def create_map(imgd,imgj):
             create_image(imgd,v[i],color,k,i)
 
 # add the thyroid and nodule images of a single patient
-def add(i1,i2,k,index):
+def iadd(i1,i2,k,index):
     r0,c0,d0 = i1.shape
     r1,c1,d1 = i2.shape
     
@@ -539,7 +661,7 @@ def overlap(imgA):
         for i in range(2):
             i1 = v[i*2]
             i2 = v[i*2+1]
-            add(i1,i2,k,i)
+            iadd(i1,i2,k,i)
 
 #create_map(imgd,imgj)
 #create_image(imgd,imgj['05'][2],[0,255,255],'05',2,0)
