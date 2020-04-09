@@ -53,6 +53,7 @@ rjson = 'C:\\Users\\AZEST-2019-07\Desktop\\Ito\\orientation_json.txt'
 imgdict = read_json(rjson)
 xt,yt = [],[]
 
+# load the data from path
 def load(fpath):
     global xt,yt,imgdict
     for path,subdir,files in os.walk(fpath):
@@ -109,8 +110,8 @@ def load_model2():
                   metrics=[sm.metrics.iou_score,f1])
     return model
 
+# resnet block
 def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,activation='relu',sno='0'):
-    
     
     conv = Conv2D(nf,
                   kernel_size=Ksize,
@@ -136,14 +137,14 @@ def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,a
             x = Activation(activation,name='Act'+sno)(x)
     return x
 
-
+# resnet or unet is created based on the 'net' parameter
 def resnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
-
+    # nb defines the number of resnet blocks
     Ksize=3
     padding='same'
     strides=1
-    ld = {}
-    nf = 32
+    ld = {}   # stores intermediate layers for concatenation in unet
+    nf = 32   # number of filters at the starting
     
     
     inputs = Input(input_shape,name='inp')
@@ -154,9 +155,9 @@ def resnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
     
     for i in range(nb):
         nf = 2*nf
-        y = resunit(x,nf,strides=2,sno=str((i+1)*10))
+        y = resunit(x,nf,strides=2,sno=str((i+1)*10))     # strides = 2 reduces the output dimension by 2
         y = resunit(y,nf,sno=str((i+1)*10+1))
-        x = Conv2D(nf,kernel_size=1,padding='same',strides=2,name='1C'+str((i+1)*10))(x)
+        x = Conv2D(nf,kernel_size=1,padding='same',strides=2,name='1C'+str((i+1)*10))(x)  # matches the shape for addition
         x = add([x,y],name='A0'+str(i+1))
         ld['A'+str(i+1)] = x
     
@@ -185,7 +186,6 @@ def resnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
     # Instantiate model.
     model = Model(inputs=inputs, outputs=outputs, name=net)
     return model
-
 
 def transfer(model,input_shape,n_classes=5,nb=4):
     
