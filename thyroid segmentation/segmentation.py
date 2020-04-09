@@ -138,7 +138,7 @@ def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,a
     return x
 
 # resnet or unet is created based on the 'net' parameter
-def resnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
+def resUnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
     # nb defines the number of resnet blocks
     Ksize=3
     padding='same'
@@ -216,7 +216,7 @@ def transfer(model,input_shape,n_classes=5,nb=4):
 def train():
     #tensorboard = TensorBoard(log_dir='C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\logs\\tb1')
     
-    model = resnet(input_shape=input_shape,net = 'resnet')
+    model = resUnet(input_shape=input_shape,net = 'resnet')
     
     opt = keras.optimizers.Adam(learning_rate=0.001)
     
