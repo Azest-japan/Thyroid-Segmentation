@@ -112,7 +112,7 @@ def load_model2():
 
 # resnet block
 def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,activation='relu',sno='0'):
-    
+    # sno = serial number of the unit
     conv = Conv2D(nf,
                   kernel_size=Ksize,
                   strides=strides,
