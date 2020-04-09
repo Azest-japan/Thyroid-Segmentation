@@ -190,7 +190,7 @@ def resnet(input_shape,n_classes=5,nf=32,nb=4,net='unet'):
 # integrate the learned resnet encoder into unet
 def transfer(model,input_shape,n_classes=5,nb=4):
     
-    x = model.layers[37].output
+    x = model.layers[nb*8+5].output
     nf = 512
     Ksize=3
     padding='same'
