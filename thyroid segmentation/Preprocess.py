@@ -84,17 +84,19 @@ def loadimg(fpath,ftype):
             
     return imgdict
 
-imgd = loadimg(dicom_path,'dicom')
+#imgd = loadimg(dicom_path,'dicom')
 
 def readxml(fxml,imgdict):
-    colordict = {'Thyroid':(100,200,0),'Trachea':(100,200,200),'Nodule':(30,60,160),'Artery':(200,100,0)}
+    colordict = {'Thyroid':80,'Trachea':0,'Nodule':150,'Benign':150,'Papillary':220, 'Malignant':220}
+    labeldict = {'Thyroid':1,'Nodule':2,'Benign':2,'Malignant':5,'Papillary':5}
+    hotdict = {'Thyroid':1,'Nodule':2,'Benign':2,'Malignant':3,'Papillary':3}
     tree = et.parse(fxml)
     root = tree.getroot()
     d = {}
-    
+    nc = 4
     for ann in root.iter('image'):
         d = {}
-        print(ann.attrib['name'])
+        #print(ann.attrib['name'])
         for el in ann.findall('polygon'):
             lab = el.attrib['label']
             points = el.attrib['points'].split(';')
@@ -102,18 +104,26 @@ def readxml(fxml,imgdict):
             if not lab in d.keys():
                 d[lab] = []
             d[lab].append(p)
-
-        for k in ['Thyroid','Nodule','Artery','Trachea']:
+            
+        i3 = imgdict[ann.attrib['name']]
+        i2c = np.uint8(np.zeros(i3.shape[0:2]))
+        #im = np.uint8(np.zeros((i3.shape[0:2]+(nc,))))
+        for k in ['Thyroid','Nodule','Benign','Malignant','Papillary']:
             if k in d.keys():
                 for v in d[k]:
+                    i2 = np.uint8(np.zeros(i3.shape[0:2]))
                     pts = np.array(v, np.int32)
                     mask = colordict[k]
-                    
                     #cv2.polylines(imgdict[ann.attrib['name']],[pts],True,color = mask)
-                    cv2.fillPoly(imgdict[ann.attrib['name']], [pts], color=mask)
+                    cv2.fillPoly(i2, [pts], color=mask)
+                    i2c[i2!=0] += labeldict[k]
+                    
+        disp(i2c*40)
+        #mouse(i2c*40)
+        
+        #i3 = np.hstack((i3,cv2.add(7*np.uint8(i3/12),5*np.uint8(i2/12))))
         #disp(imgdict[ann.attrib['name']])
-        #cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\Ito\\Patient 1\\annotated'+ann.attrib['name'], imgdict[ann.attrib['name']])
-    return imgdict      
+        #cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\Ito\\Comp\\Papillary\\a_'+ann.attrib['name'], i3)   
 
 
 def load_model2():
