@@ -149,6 +149,28 @@ def disp(img,imgl=None):
         cv2.imshow('img0',imgl)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+    
+# display in matplotlib
+def displt(img,imgl=None):
+    print('img')
+    fig = plt.figure()
+    if np.sum(img.shape)>1000:
+        fig = plt.gcf()
+        fig.set_size_inches(18,10)
+        print(1)
+    else:
+        fig.set_size_inches(6,4)
+        print(0)
+    ax1 = fig.add_subplot(111)
+    ax1.imshow(img)
+    plt.show()
+    if not imgl is None:
+        n = len(imgl)
+        for i in range(n):
+            if not imgl[i] is None:
+                print('img'+str(i))
+                plt.imshow(imgl[i])
+                plt.show()
 
 # returns gray scale of the image
 def gray(img):
