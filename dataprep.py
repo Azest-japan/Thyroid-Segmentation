@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 Created on Tue Oct  8 17:28:45 2019
-
 @author: AZEST-2019-07
 """
 
 
-import skimage.io as io
 import sys
 import os
 import cv2
@@ -23,6 +21,9 @@ from tensorflow.keras.models import model_from_json, load_model
 import tqdm
 import csv
 import xml.etree.ElementTree as et
+import matplotlib.pyplot as plt
+import segmentation_models as sm
+
 
 base = 'D:\\Ito data\\'
 
@@ -115,12 +116,54 @@ def disp(img,imgl=None):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+    
+def displt(img,imgl=None):
+    print('img')
+    fig = plt.figure()
+    if np.sum(img.shape)>1000:
+        fig = plt.gcf()
+        fig.set_size_inches(18,10)
+        print(1)
+    else:
+        fig.set_size_inches(6,4)
+        print(0)
+    ax1 = fig.add_subplot(111)
+    ax1.imshow(img)
+    plt.show()
+    if not imgl is None:
+        n = len(imgl)
+        for i in range(n):
+            if not imgl[i] is None:
+                print('img'+str(i))
+                plt.imshow(imgl[i])
+                plt.show()
+
 #cv2.imshow('image2',editimg*30)
 #cv2.waitKey(0)
 #cv2.destroyAllWindows()
 
 def gray(img):
     return np.uint8(cv2.cvtColor(img,cv2.COLOR_BGR2GRAY))
+
+# find quality of color image
+def quality(img):
+    #img = np.uint8(cv2.cvtColor(img,cv2.COLOR_BGR2GRAY))
+    ddepth = cv2.CV_8U
+    laplacian = cv2.Laplacian(img, ddepth, ksize=3) 
+    #disp(laplacian)
+    return laplacian.var()
+
+# enhance the quality of cut image using CLAHE method
+def enhanceQ(img,q):
+    
+    cl = 1
+    clahe = cv2.createCLAHE(clipLimit=cl, tileGridSize=(8,8))
+    img = clahe.apply(img)
+    #img[:,:,1] = clahe.apply(img[:,:,1])
+    #img[:,:,2] = clahe.apply(img[:,:,2])
+    
+    return img
+
 
 def orinfo(img0,name):
     img = np.uint8(cv2.cvtColor(img0,cv2.COLOR_BGR2GRAY))
@@ -177,48 +220,15 @@ def orinfo(img0,name):
     #disp(sc)
     
     if np.max(sh.sum(axis=0)) > np.max(sh.sum(axis=1)):
-        # cd = np.argmax(sh.sum(axis=0))   
-        # sc0 = np.uint8(cv2.cvtColor(sc,cv2.COLOR_BGR2GRAY))
-        # sc0[sh>0] = 0
-        # dmin = 100
-        # cmax = int(sc.shape[1]/2)-3
-        
-        # for i in range(int(sc.shape[1]/2)-4,int(sc.shape[1]/2)+4):
-        #     col = len(sc0[:,i])
-            
-        #     p = 0
-        #     n = 0
-        #     j = 10
-        #     while j<col:
-        #         #print(i,' ',j,' ',sc0[j,i],' ',sc0[j-2,i],' ',p,' ',n,' ',cmax,' ',dmin)
-                
-        #         if (sc0[j,i] > 120) and (sc0[j-2,i] < 36) :
-        #             n += 1
-        #             if n == 2:
-        #                 p = j
-        #             elif n==3:
-        #                 if j-p < dmin:
-        #                     dmin = j-p
-        #                     cmax = i
-        #                 #print('break ',i,' ',j,' ',sc0[j,i],' ',sc0[j-2,i],' ',p,' ',n,' ',cmax,' ',dmin,' ',j-p)
-        #                 break
-        #             j += 3
-        #         j += 1
-                
-        #print(name,' Vertical',cd,cmax,abs(cd-cmax))
-        #sc[:,cd] = [50,200,50]
-        #sc[:,cmax] = [200,100,50]
-        #disp(sc)
-        return 0 #,int(cd),int(cmax)
+       
+        return 0 
     
     else:
         cd = np.argmax(sh.sum(axis=1))
         if cd==0:
             print(name,t,b,l,r, ct[0]/img.shape[0], ct[1]/img.shape[1],np.sum([t,b,l,r]),np.min([t,b,l,r]),ct)
             #disp(img,[dst,sc])
-        #sc[cd,:] = [50,200,50]
-        #disp(sc)
-        #print(name,' Horizontal')
+       
         return 1 #,int(cd),-1
 
 def write_csv(wpath,data):
@@ -288,8 +298,6 @@ def cut_alt(img):
     cv2.destroyAllWindows()
 
 
-
-
 def cut(img):
 
     mono_img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY) # np.sum(img, axis=2)
@@ -329,22 +337,23 @@ def cut(img):
     for l in range(mono_img.shape[1]-judge_len):
         if all(col_activate[l:l+judge_len] >= min_unique):
             left = l
-            for r in range(left + int(0.6*(mono_img.shape[1] - left)), mono_img.shape[1]):
-                
-                if all(col_activate[r:r+10] < min_unique) or len(np.where(mono_img[top:bottom,r]<6)[0])>bottom-top-60:
-                    #print(r-10,r+10,col_activate[r-10:r+10])
+            for r in reversed(range(left + int(0.6*(mono_img.shape[1] - left)), mono_img.shape[1])):
+                #print(r-judge_len,r,col_activate[r-judge_len:r])
+                if all(col_activate[r-judge_len:r] >= min_unique):
+                    
                     #disp(img[:,r-10:r+10])
                     break
             right = r
             break
-
-
+            
     return top, bottom, left, right
+
 
 def cutpr(img):
     t,b,l,r = cut(img)
     if b > t+100 and r > l+100:
         img = img[t:b,l:r]
+                
     return gray(img)
 
 
@@ -501,9 +510,12 @@ def extract(img,col,top,bottom,ll):
 #        cv2.destroyAllWindows()
     return peak,dist
 
-def readxml(fxml,imgdict):
-    colordict = {'Thyroid':(100,200,0),'Trachea':(100,200,200),'Nodule':(30,60,160),'Benign':(30,60,160),'Papillary':(200,30,220), 'Malignant':(200,30,220)}
-    labeldict = {'Thyroid':0,'Nodule':1,'Benign':2,'Malignant':3}
+
+def readxml(fxml):
+    imgd = {}
+    colordict = {'Thyroid':80,'Trachea':0,'Nodule':150,'Benign':150,'Papillary':220, 'Malignant':220}
+    labeldict = {'Thyroid':1,'Nodule':2,'Benign':2,'Malignant':7,'Papillary':7}
+    hotdict = {'Thyroid':1,'Nodule':2,'Benign':2,'Malignant':3,'Papillary':3}
     tree = et.parse(fxml)
     root = tree.getroot()
     d = {}
@@ -515,32 +527,121 @@ def readxml(fxml,imgdict):
             lab = el.attrib['label']
             points = el.attrib['points'].split(';')
             p = [(float(i.split(',')[0]),float(i.split(',')[1])) for i in points]
-            if not lab in d.keys():
-                d[lab] = []
-            d[lab].append(p)
-            
-        i3 = imgdict[ann.attrib['name']]
-        i2 = np.zeros(i3.shape)
+            if not lab.lower() in d.keys():
+                d[lab.lower()] = []
+            d[lab.lower()].append(p)
+        
+        no = int(ann.attrib['name'].split('_')[0])
+        
+        if no<201:
+            i3 = cv2.imread('/test/Ito/Selected1/' + ann.attrib['name'])
+        else:
+            i3 = cv2.imread('/test/Ito/SelectedP/' + ann.attrib['name'])
+        if type(i3) == type(None):
+            i3 = cv2.imread('/test/Ito/test/' + ann.attrib['name'])
+        
+        t,b,l,r = cut(i3)
+        if b < t+100 or r < l+100:
+            print('DaMe')
+      
+        
+        i2c = np.uint8(np.zeros(i3.shape[0:2]))
+        #temp = [0,0]
+        
         for k in ['Thyroid','Nodule','Benign','Malignant','Papillary']:
-            if k in d.keys():
-                for v in d[k]:
-                    pts = np.array(v, np.int32)
-                    mask = colordict[k]
+            if k.lower() in d.keys():
+                for v in d[k.lower()]:
+                    '''
+                    mask = hotdict[k] - 2 
+                    if mask>=0:
+                        temp[mask] = 1
+                    '''
                     
-                    #cv2.polylines(imgdict[ann.attrib['name']],[pts],True,color = mask)
+                    i2 = np.uint8(np.zeros(i3.shape[0:2]))
+                    pts = np.int32(np.round(v))
+                    mask = colordict[k]
+                    #cv2.polylines(i2,[pts],True,color = mask)
                     cv2.fillPoly(i2, [pts], color=mask)
+                    i2c[i2!=0] += labeldict[k]
+                    
+
+        i2c = i2c[t:b,l:r]
         
-        
-        i3 = np.hstack((i3,cv2.add(7*np.uint8(i3/12),5*np.uint8(i2/12))))
-        #disp(imgdict[ann.attrib['name']])
-        cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\Ito\\Comp\\Papillary\\a_'+ann.attrib['name'], i3)
-        
+        imgd[ann.attrib['name']] = i2c 
+    return imgd
 
 
-# resizes image based on distance while maintaining aspect ratio
+def onehot(img):
+    i2 = np.uint8(np.zeros((320,512)+(4,)))
+    i2[img==1] = [0,1,0,0]
+    
+    i2[(img<7)*(img>=2)] = [0,1,1,0]
+    i2[img==7] = [0,0,0,1]
+    i2[img>=8] = [0,1,0,1]
+    i2[img==0] = [1,0,0,0]
+    
+    return i2
+
+def decode(himg):
+    himg = himg.copy()
+    himg[himg<0.45] = 0
+    himg[:,:,1][(himg[:,:,0]<0.5)*(himg[:,:,1]>0.45)] = 1
+    himg[:,:,1][(himg[:,:,0]>0.5)*(himg[:,:,1]>0.75)] = 1
+    himg[:,:,1][(himg[:,:,0]>0.75)*(himg[:,:,1]<0.75)] = 0
+    himg[:,:,2][himg[:,:,2]<0.5] = 0
+    himg[:,:,3][himg[:,:,3]<0.5] = 0
+    
+    yimg = np.uint8(np.ones((320,512,3)))
+    #print(himg.shape)
+    i=1
+    yimg[himg[:,:,i-1]!=0] = himg[:,:,i-1][himg[:,:,i-1]!=0].reshape(-1,1)*np.array([8,8,8]).reshape(1,-1)
+    yimg[himg[:,:,i]!=0] = himg[:,:,i][himg[:,:,i]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1) + (1-himg[:,:,i])[himg[:,:,i]!=0].reshape(-1,1)*np.array([50,100,50]).reshape(1,-1)
+    yimg[himg[:,:,i+1]!=0] = himg[:,:,i+1][himg[:,:,i+1]!=0].reshape(-1,1)*np.array([50,50,200]).reshape(1,-1) + (1-himg[:,:,i+1])[himg[:,:,i+1]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1)
+    yimg[himg[:,:,i+2]!=0] = himg[:,:,i+2][himg[:,:,i+2]!=0].reshape(-1,1)*np.array([200,50,50]).reshape(1,-1) + (1-himg[:,:,i+2])[himg[:,:,i+2]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1)
+    
+    return yimg
+
+
+def disp_decode(x,y,lb,i):
+    
+    print(lb[i])
+    displt(x[i])
+    displt(decode(y[i]))
+
+# mix the annotated output and input image
+def fusion(img,img2):
+    img3 = cv2.add(7*np.uint8(img/12),5*np.uint8(img2/12))
+    img2[img2<10] = 0
+    img3[img2==0] = img[img2==0]
+    return img3
+    
+def save_res(x,y,yt,lb):
+    n = x.shape[0]
+    
+    for i in range(n):
+        ximg = np.uint8(np.zeros((320,512,3)))
+        ximg[:,:,0] = np.uint8(x[i].reshape((320,512))*255)
+        ximg[:,:,1] = ximg[:,:,0]
+        ximg[:,:,2] = ximg[:,:,0]
+        
+        i3 = np.hstack((ximg,fusion(ximg,decode(y[i])),fusion(ximg,decode(yt[i]))))
+        cv2.imwrite('/test/Ito/result/'+str(i)+'.jpg',i3)
+        iou_m = sm.metrics.IOUScore()(yt[i],y[i])
+        iou_0 = sm.metrics.IOUScore()(yt[i,:,:,0],y[i,:,:,0])
+        iou_1 = sm.metrics.IOUScore()(yt[i,:,:,1],y[i,:,:,1])
+        iou_2 = sm.metrics.IOUScore()(yt[i,:,:,2],y[i,:,:,2])
+        iou_3 = sm.metrics.IOUScore()(yt[i,:,:,3],y[i,:,:,3])
+        th = findthresh(yt[i],y[i])
+        print(i,lb[-500+i],th)
+        
+def img_test(ximg,yp,yt):
+    
+    None
+        
+# resizes image based on distance while maintaining aspect ratio 
 def img_resize(img,m0=320,n0=512):
 
-    m,n = img.shape
+    m,n = img.shape[0:2]
     #print(m,n)
     
     if m<m0-32 and n>n0+32:
@@ -606,125 +707,33 @@ def img_resize(img,m0=320,n0=512):
 
 # augment the images with their mirror-image 
 def flip(img):
+    
+    # np.flip(img,len(img.shape)-2)
     return cv2.flip(img, 1)
-    
-
-# extract the outline of the annotated image
-def create_image(imgd,img,color,k,index,c=5):
-    top,bottom,left,right = cut(imgd[k][min(int(index/2),1,c)])          
-    img = img[top:bottom,left:right]
-    img2 = np.zeros(img.shape)
-    r,c,d = img.shape
-    #print(r,c,k,index,index/2)
-    for i in range(r):
-        for j in range(c):
-            if (img[i,j]>[0,30,100]).sum()>=3 and (img[i,j]<[80,160,256]).sum()>=3:
-                img2[i,j] = np.array(color)
-    cv2.imwrite('D:\\Ito data\\annotated\\'+k+str(index)+'.png',img2)
-#    cv2.imshow('img',img2)
-#    cv2.waitKey(0)
-#    cv2.destroyAllWindows()
-#    return img2
-
-# extract the outline of all images by iteration
-def create_map(imgd,imgj):
-    for k,v in imgj.items():
-        for i in range(len(v)):
-            if i%2==0:
-                color = [0,255,0]
-            else:
-                color = [0,255,255]
-            create_image(imgd,v[i],color,k,i)
-
-# add the thyroid and nodule images of a single patient
-def iadd(i1,i2,k,index):
-    r0,c0,d0 = i1.shape
-    r1,c1,d1 = i2.shape
-    
-    r,c = min(r0,r1),min(c0,c1)
-    #print(r,c)
-    
-    i1 = i1[0:r,0:c,:]
-    i2 = i2[0:r,0:c,:]
-    
-    i3 = cv2.add(i1,i2)
-    cv2.imwrite('D:\\Ito data\\overlap\\'+k+str(index)+'.png',i3)
-#    cv2.imshow('i1',i1)
-#    cv2.imshow('i2',i2)
-#    cv2.imshow('i3',i3)
-#    cv2.waitKey(0)
-#    cv2.destroyAllWindows()
-    
-# add the thyroid and nodule images of all patients by iteration
-def overlap(imgA):
-    for k,v in imgA.items():
-        for i in range(2):
-            i1 = v[i*2]
-            i2 = v[i*2+1]
-            iadd(i1,i2,k,i)
-
-#create_map(imgd,imgj)
-#create_image(imgd,imgj['05'][2],[0,255,255],'05',2,0)
-#create_image(imgd,imgj['05'][3],[0,255,0],'05',3)
-#create_image(imgd,imgj['05'][4],[0,255,255],'05',4)
-
-#imgA = loadimg(annotated_path,'annotation')
-#
-#overlap(imgA)
-#add(imgA['05'][3],imgA['05'][4],'05',1)
-
-# Convert color -> classes and classes -> one-hot vector
-def one_hot(overlap_path,fd=6):   # 1-thyroid, 2-papillary, 3-benign, 4-cyst, 5-solid lesions 0-other
-    #thyroid green 
-    #outline yellow
-    #papillary red 
-    #benign blue 252,3,22
-    #cyst violet 239,27,218
-    #solid-lesion pale white 180,207,216
-    
-    for path, subdir, files in os.walk(overlap_path):
-        fimg_list = []
-        for file in files:
-            full_path = path + '\\' + file
-            img = cv2.imread(full_path)     
-            #reshape(img)
-            r,c,d = img.shape
-            
-            fimg = np.uint8(np.zeros([r,c]))
-            # color -> classes
-            for i in range(r):
-                for j in range(c):
-                    b,g,r = img[i,j]
-                        
-                    if b<60 and g<60 and r<60:       # black other 0
-                        fimg[i,j] = 0
-                    
-                    elif g>2*r and g > 2*b:          # green thyroid 1
-                        fimg[i,j] = 1
-                        
-                    elif r>2*g and r>2*b:            # red papillary 2
-                        fimg[i,j] = 2 
-                        
-                    elif b>200 and b>3*g and b>3*r:  # blue benign 3 
-                        fimg[i,j] = 3
-                        
-                    elif b>180 and r>180 and g<80:   # violet cyst 4
-                        fimg[i,j] = 4
-                        
-                    elif r>180 and g>180 and b>150:  # pale white solid-lesion 5
-                        fimg[i,j] = 5
-                        
-                    elif r>200 and g>200 and b<60:   # yellow outline 1
-                        fimg[i,j] = 1
-            
-            #color -> one-hot vector
-            fimg = to_categorical(fimg,fd)
-            fimg_list.append(fimg)
-            return fimg_list
-
-#fhot = one_hot(overlap_path,final_dim)
-
-
-
 
     
+
+def findthresh(yt,yp):
+    
+    m = 0
+    iou = []
+    th = np.zeros(yt.shape[-1])
+    for i in range(yt.shape[-1]):
+        iou = []
+        for k in np.arange(0.2,0.92,0.02):
+            y = yp[:,:,:,i].copy()
+            y[y<k] = 0
+            y[y>=k] = 1
+            intersection = np.sum(yt[:,:,:,i]*y)
+            union = np.sum(yt[:,:,:,i])+np.sum(y)-intersection
+            #print(k,i/u,yt,y)
+            jl = intersection/union
+            iou.append(jl)
+            if jl > m:
+                m = jl
+                th[i] = k
+    return th
+        #print(th)
+        #x = np.arange(0.2,0.92,0.02)
+        #plt.plot(x,np.array(iou))
+        #plt.show()
