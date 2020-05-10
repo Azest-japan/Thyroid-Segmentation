@@ -313,6 +313,11 @@ def append_json(rpath,name,val,wpath=None):
     
     return data
 
+def write_csv(wpath,data):
+    with open(wpath, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerows(data)
+
 # resizes image based on distance while maintaining aspect ratio
 def img_resize(img,m0=416,n0=512):
 
@@ -458,34 +463,6 @@ def orinfo(img0):
         #print('Horizontal')
         return 1,int(cd),-1
     
-    
-
-# extract the outline of the annotated image
-def create_image(imgd,img,color,k,index,c=5):
-    top,bottom,left,right = cut(imgd[k][min(int(index/2),1,c)])          
-    img = img[top:bottom,left:right]
-    img2 = np.zeros(img.shape)
-    r,c,d = img.shape
-    #print(r,c,k,index,index/2)
-    for i in range(r):
-        for j in range(c):
-            if (img[i,j]>[0,30,100]).sum()>=3 and (img[i,j]<[80,160,256]).sum()>=3:
-                img2[i,j] = np.array(color)
-    cv2.imwrite('D:\\Ito data\\annotated\\'+k+str(index)+'.png',img2)
-#    cv2.imshow('img',img2)
-#    cv2.waitKey(0)
-#    cv2.destroyAllWindows()
-#    return img2
-
-# extract the outline of all images by iteration
-def create_map(imgd,imgj):
-    for k,v in imgj.items():
-        for i in range(len(v)):
-            if i%2==0:
-                color = [0,255,0]
-            else:
-                color = [0,255,255]
-            create_image(imgd,v[i],color,k,i)
 
 
 
@@ -533,63 +510,92 @@ def flip(img):
 
 
 # mix the annotated output and input image
-def fusion(img,img2,path,name):
+def fusion(img,img2):
     img3 = cv2.add(7*np.uint8(img/12),5*np.uint8(img2/12))
+    img2[img2<10] = 0
     img3[img2==0] = img[img2==0]
-    cv2.imwrite(path+'\\'+name,img3)
     return img3
 
-
-# Convert color -> classes and classes -> one-hot vector
-def one_hot(overlap_path,fd=6):   # 1-thyroid, 2-papillary, 3-benign, 4-cyst, 5-solid lesions 0-other
-    #thyroid green 
-    #outline yellow
-    #papillary red 
-    #benign blue 252,3,22
-    #cyst violet 239,27,218
-    #solid-lesion pale white 180,207,216
+def onehot(img):
+    i2 = np.uint8(np.zeros((320,512)+(4,)))
+    i2[img==1] = [0,1,0,0]
     
-    for path, subdir, files in os.walk(overlap_path):
-        fimg_list = []
-        for file in files:
-            full_path = path + '\\' + file
-            img = cv2.imread(full_path)     
-            #reshape(img)
-            r,c,d = img.shape
-            
-            fimg = np.uint8(np.zeros([r,c]))
-            # color -> classes
-            for i in range(r):
-                for j in range(c):
-                    b,g,r = img[i,j]
-                        
-                    if b<60 and g<60 and r<60:       # black other 0
-                        fimg[i,j] = 0
-                    
-                    elif g>2*r and g > 2*b:          # green thyroid 1
-                        fimg[i,j] = 1
-                        
-                    elif r>2*g and r>2*b:            # red papillary 2
-                        fimg[i,j] = 2 
-                        
-                    elif b>200 and b>3*g and b>3*r:  # blue benign 3 
-                        fimg[i,j] = 3
-                        
-                    elif b>180 and r>180 and g<80:   # violet cyst 4
-                        fimg[i,j] = 4
-                        
-                    elif r>180 and g>180 and b>150:  # pale white solid-lesion 5
-                        fimg[i,j] = 5
-                        
-                    elif r>200 and g>200 and b<60:   # yellow outline 1
-                        fimg[i,j] = 1
-            
-            #color -> one-hot vector
-            fimg = to_categorical(fimg,fd)
-            fimg_list.append(fimg)
-            return fimg_list
+    i2[(img<7)*(img>=2)] = [0,1,1,0]
+    i2[img==7] = [0,0,0,1]
+    i2[img>=8] = [0,1,0,1]
+    i2[img==0] = [1,0,0,0]
+    
+    return i2
+
+def decode(himg):
+    himg = himg.copy()
+    himg[himg<0.45] = 0
+    himg[:,:,1][(himg[:,:,0]<0.5)*(himg[:,:,1]>0.45)] = 1
+    himg[:,:,1][(himg[:,:,0]>0.5)*(himg[:,:,1]>0.75)] = 1
+    himg[:,:,1][(himg[:,:,0]>0.75)*(himg[:,:,1]<0.75)] = 0
+    himg[:,:,2][himg[:,:,2]<0.5] = 0
+    himg[:,:,3][himg[:,:,3]<0.5] = 0
+    
+    yimg = np.uint8(np.ones((320,512,3)))
+    #print(himg.shape)
+    i=1
+    yimg[himg[:,:,i-1]!=0] = himg[:,:,i-1][himg[:,:,i-1]!=0].reshape(-1,1)*np.array([8,8,8]).reshape(1,-1)
+    yimg[himg[:,:,i]!=0] = himg[:,:,i][himg[:,:,i]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1) + (1-himg[:,:,i])[himg[:,:,i]!=0].reshape(-1,1)*np.array([50,100,50]).reshape(1,-1)
+    yimg[himg[:,:,i+1]!=0] = himg[:,:,i+1][himg[:,:,i+1]!=0].reshape(-1,1)*np.array([50,50,200]).reshape(1,-1) + (1-himg[:,:,i+1])[himg[:,:,i+1]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1)
+    yimg[himg[:,:,i+2]!=0] = himg[:,:,i+2][himg[:,:,i+2]!=0].reshape(-1,1)*np.array([200,50,50]).reshape(1,-1) + (1-himg[:,:,i+2])[himg[:,:,i+2]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1)
+    
+    return yimg
 
 
+def disp_decode(x,y,lb,i):
+    
+    print(lb[i])
+    displt(x[i])
+    displt(decode(y[i]))
+
+    
+def save_res(x,y,yt,lb):
+    n = x.shape[0]
+    
+    for i in range(n):
+        ximg = np.uint8(np.zeros((320,512,3)))
+        ximg[:,:,0] = np.uint8(x[i].reshape((320,512))*255)
+        ximg[:,:,1] = ximg[:,:,0]
+        ximg[:,:,2] = ximg[:,:,0]
+        
+        i3 = np.hstack((ximg,fusion(ximg,decode(y[i])),fusion(ximg,decode(yt[i]))))
+        cv2.imwrite('/test/Ito/result/'+str(i)+'.jpg',i3)
+        iou_m = sm.metrics.IOUScore()(yt[i],y[i])
+        iou_0 = sm.metrics.IOUScore()(yt[i,:,:,0],y[i,:,:,0])
+        iou_1 = sm.metrics.IOUScore()(yt[i,:,:,1],y[i,:,:,1])
+        iou_2 = sm.metrics.IOUScore()(yt[i,:,:,2],y[i,:,:,2])
+        iou_3 = sm.metrics.IOUScore()(yt[i,:,:,3],y[i,:,:,3])
+        th = findthresh(yt[i],y[i])
+        print(i,lb[-500+i],th)
+
+
+
+def findthresh(yt,yp):
+    
+    m = 0
+    iou = []
+    th = np.zeros(yt.shape[-1])
+    for i in range(yt.shape[-1]):
+        iou = []
+        for k in np.arange(0.2,0.92,0.02):
+            y = yp[:,:,:,i].copy()
+            y[y<k] = 0
+            y[y>=k] = 1
+            intersection = np.sum(yt[:,:,:,i]*y)
+            union = np.sum(yt[:,:,:,i])+np.sum(y)-intersection
+            #print(k,i/u,yt,y)
+            jl = intersection/union
+            iou.append(jl)
+            if jl > m:
+                m = jl
+                th[i] = k
+    return th
+        
 def maxdist(img):
    
     disp(img)
