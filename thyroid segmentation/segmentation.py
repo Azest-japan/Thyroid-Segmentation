@@ -22,7 +22,7 @@ from tensorflow.keras import backend as K
 #from tensorflow.keras.layers import Cropping2D
 from tensorflow.keras.regularizers import l2
 import cv2
-from dataprep import cutpr, img_resize, read_json, flip, displt, readxml, onehot, decode, enhanceQ, quality, disp_decode, save_res, fusion, cut
+from dataprep import cutpr, img_resize, read_json, flip, displt, readxml, onehot, decode, enhanceQ, quality, disp_decode, save_res, fusion, cut, cfname
 import gc
 import segmentation_models as sm
 #from tensorflow.keras.utils import multi_gpu_model
@@ -101,6 +101,8 @@ def load_data2(fxml,xt=[],yt=[],lb=[]):
     imgd = readxml(fxml)
     for k,v in imgd.items():
         no = int(k.split('_')[0])
+        if no<=60:
+            continue
         if no<201:
             i3 = cv2.imread('/test/Ito/Selected1/' + k)
         else:
@@ -247,7 +249,7 @@ def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,a
             x = Activation(activation,name='Act'+sno)(x)
     return x
 
-# resnet or unet is created based on the 'net' parameter
+# resnet encoder or unet is created based on the 'net' parameter
 def resUnet(input_shape,n_classes=4,nf=32,nb=4,net='unet',dropout=0.25):
     # nb defines the number of resnet blocks
     Ksize=3
@@ -329,6 +331,7 @@ def transfer(model,input_shape,ld,n_classes=4,nb=4,dropout=0.2):
     #print(m2.summary())
     return m2
     
+# Initialize the Resnet encoder
 def initialize(input_shape=(320,512,1),n_classes=4,net = 'resnet',dropout = 0.25):
     
     tf.compat.v1.reset_default_graph()
@@ -342,6 +345,7 @@ def initialize(input_shape=(320,512,1),n_classes=4,net = 'resnet',dropout = 0.25
     #print(model.summary())
     return model,ld
    
+
 def train_resnet(model,lr = 0.0001,epochs = 12, batch_size = 16):
     #tensorboard = TensorBoard(log_dir='C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\logs\\tb1')
     
@@ -377,21 +381,31 @@ def train_resnet(model,lr = 0.0001,epochs = 12, batch_size = 16):
 
 
 def weighted_binary_crossentropy(w,batch_size):
-
+    a = K.ones((batch_size,320,512,4))
+    b = K.ones((batch_size,320,512,4))
+    #c = K.ones((batch_size,320,512,4))
+    #d = K.ones((batch_size,320,512,4))
+    
     def loss(y_true, y_pred):
 
         # Calculate the binary crossentropy
         b_ce = K.binary_crossentropy(y_true, y_pred)
         alpha = 0.5
-        b_ce = b_ce * K.ones((batch_size,320,512,4))[:,:,:,1].assign(K.ones((batch_size,320,512,4))[:,:,:,1] + alpha*K.cast(((y_true>[0.5,1,1,1])[:,:,:,0]  == (y_pred>[1,0.5,1,1])[:,:,:,1]),'float32'))
-        b_ce = b_ce * K.ones((batch_size,320,512,4))[:,:,:,3].assign(K.ones((batch_size,320,512,4))[:,:,:,3] + alpha*K.cast(((y_true<[1,1,1,0.5])[:,:,:,3]  == (y_pred>[1,1,1,0.5])[:,:,:,3]),'float32'))
+        b_ce = b_ce * a[:,:,:,1].assign(b[:,:,:,1] + alpha*K.cast(((y_true>[0.5,1,1,1])[:,:,:,0]  == (y_pred>[1,0.5,1,1])[:,:,:,1]),'float32'))
+        b_ce = b_ce * a[:,:,:,3].assign(b[:,:,:,3] + alpha*K.cast(((y_true<[1,1,1,0.5])[:,:,:,3]  == (y_pred>[1,1,1,0.5])[:,:,:,3]),'float32'))
+        
+        
         # Apply the weights
         weighted_b_ce = w * b_ce
         jloss = sm.losses.JaccardLoss(class_weights=w)
-        dl = sm.losses.DiceLoss(class_weights=w)
+        dl = sm.losses.DiceLoss()
         
-        l = dl(y_true,y_pred)
+        l_0 = dl(K.flatten(y_true[:,:,:,0]),K.flatten(y_pred[:,:,:,0]))
+        l_1 = dl(K.flatten(y_true[:,:,:,1]),K.flatten(y_pred[:,:,:,1]))
+        l_2 = dl(K.flatten(y_true[:,:,:,2]),K.flatten(y_pred[:,:,:,2]))
+        l_3 = dl(K.flatten(y_true[:,:,:,3]),K.flatten(y_pred[:,:,:,3]))
         
+        l = (w[0]*l_0 + w[1]*l_1 + w[2]*l_2*K.cast(l_2 > 0.06,'float32') + w[3]*l_3*K.cast(l_3 > 0.06,'float32') )/(w[0] + w[1] + w[2]*K.cast(l_2 > 0.1,'float32') + w[3]*K.cast(l_3>0.1,'float32'))
         
         """ 
         tf.config.experimental_run_functions_eagerly(True)
@@ -486,17 +500,21 @@ def train_unet(model,lr = 0.0001,epochs = 12, batch_size = 12):
     
     
     return model
+
+def load_m(fw1='/test/Ito/unet_weights2_0.0001.hdf5',dropout=0.2):
     
-gc.collect()
+    gc.collect()
 
-fm = '/test/Ito/unet.h5'
-fw0 = '/test/Ito/resnet_weights2_0.0001.hdf5'
-fw1 = '/test/Ito/unet_weights2_0.0001.hdf5'
+    fm = '/test/Ito/unet.h5'
+    fw0 = '/test/Ito/resnet_weights2_0.0001.hdf5'
 
-model,ld = initialize(n_classes=3,dropout=0)
-#tf.compat.v1.enable_eager_execution() 
-model = transfer(model,input_shape,ld,n_classes=4,nb=4,dropout=0)
-model.load_weights(fw1)
+    model,ld = initialize(n_classes=3,dropout=dropout)
+    #tf.compat.v1.enable_eager_execution() 
+    model = transfer(model,input_shape,ld,n_classes=4,nb=4,dropout=dropout)
+    model.load_weights(fw1)
+    return model
+
+model = load_m()
 
 
 '''
@@ -508,20 +526,19 @@ print(len(xt),len(yt),len(lb),1)
 xt,yt,lb = load_data2(fxml2,xt,yt,lb)
 print(len(xt),len(yt),len(lb),2)
 xt,yt,lb = addtotalex(xt,yt,lb)
+xt,yt,lb = np.uint8(xt),np.uint8(yt),np.array(lb)
 print(xt.shape,yt.shape,lb.shape,3)
+
+for i in range(yt.shape[0]):
+    s = np.sum(yt[i,:,:,2])
+    if s < 500 and s>0:
+        yt[i,:,:,2][yt[i,:,:,2]>0] = 0
 
 p = np.random.permutation(len(xt))
 xt = xt[p[:]]
 yt = yt[p[:]]
 lb = lb[p[:]]
 
-xtst,ytst = [],[]
-xtst,ytst = test(fxml1,xtst,ytst)
-xtst,ytst = test(fxml2,xtst,ytst)
-xtst,ytst = np.array(xtst),np.uint8(ytst)
-xtst = xtst.reshape(xtst.shape+(1,))
-xtst = xtst.astype('float32')
-xtst = xtst/255
 
 gc.collect()
 xtst = xt[-500:]
@@ -553,35 +570,10 @@ pred = model.predict(x_tst)
 save_res(x_tst,pred)
 
 
-iname = '264_Image017.jpg'
-fimg = '/test/Ito/SelectedP/' + iname
-xi = img_resize(cutpr(cv2.imread(fimg)))[0]
-x = (xi.astype('float32').reshape((1,320,512,1)))/255
-ximg = np.uint8(np.zeros((320,512,3)))
-ximg[:,:,0] = np.uint8(x[0].reshape((320,512))*255)
-ximg[:,:,1] = ximg[:,:,0]
-ximg[:,:,2] = ximg[:,:,0]
-p = decode(model.predict(x)[0])
-x = (flip(xi).astype('float32').reshape((1,320,512,1)))/255
-p2 = flip(decode(model.predict(x)[0]))
-p3 = np.uint8(0.5*p+0.5*p2)
-displt(fusion(ximg,p))
-displt(fusion(ximg,p2))
-displt(p3)
-displt(fusion(ximg,p3))
-
-
-img = cv2.imread('/test/Ito/comp/'+iname)
-img = img[:,int(img.shape[1]/2):,:]
-t,b,l,r = cut(img)
-img = img[t:b,l:r]
-img = img_resize(img)[0]
-
-i2 = np.hstack((ximg,fusion(ximg,p),img))
-displt(i2)
-cv2.imwrite('/test/Ito/sample2.jpg',i2)
 
 '''
+
+
 
 
 
