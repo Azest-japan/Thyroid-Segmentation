@@ -93,6 +93,7 @@ imgd = loadimg(dicom_path,'dicom')
 clr = np.random.rand(8,3)*255
 maskcolor = dict((i+1,clr[i]) for i in range(8))
 
+# loads model
 def load_model2():
     model = load_model('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\mymodel.h5')
     model.load_weights('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\best_weights.hdf5')
@@ -104,6 +105,7 @@ def load_model2():
 
 #imgj = loadimg(jpg_path,'jpg')
 
+# display picture in openCV
 def disp(img,imgl=None):
     
     cv2.imshow('img',img)
@@ -116,7 +118,7 @@ def disp(img,imgl=None):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-    
+# display picture in Jupyter using Matplotlib
 def displt(img,imgl=None):
     #print('img')
     fig = plt.figure()
@@ -142,6 +144,7 @@ def displt(img,imgl=None):
 #cv2.waitKey(0)
 #cv2.destroyAllWindows()
 
+
 def gray(img):
     return np.uint8(cv2.cvtColor(img,cv2.COLOR_BGR2GRAY))
 
@@ -154,9 +157,9 @@ def quality(img):
     return laplacian.var()
 
 # enhance the quality of cut image using CLAHE method
-def enhanceQ(img,q):
+def enhanceQ(img,q,cl=0.75):
     
-    cl = 1
+    
     clahe = cv2.createCLAHE(clipLimit=cl, tileGridSize=(8,8))
     img = clahe.apply(img)
     #img[:,:,1] = clahe.apply(img[:,:,1])
@@ -164,7 +167,7 @@ def enhanceQ(img,q):
     
     return img
 
-
+# Extract the schema information in the bottom of the image
 def orinfo(img0,name):
     img = np.uint8(cv2.cvtColor(img0,cv2.COLOR_BGR2GRAY))
 
@@ -231,6 +234,7 @@ def orinfo(img0,name):
        
         return 1 #,int(cd),-1
 
+    
 def write_csv(wpath,data):
     with open(wpath, 'w', newline='') as file:
         writer = csv.writer(file)
@@ -255,6 +259,7 @@ def append_json(rpath,name,val,wpath=None):
     
     return data
 
+# not used
 def cut_alt(img):
     e1 = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
     e1 = np.uint8(cv2.cvtColor(e1,cv2.COLOR_BGR2GRAY))
@@ -297,7 +302,7 @@ def cut_alt(img):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-
+# Used to crop the ultrasound image and remove all the other regions
 def cut(img):
 
     mono_img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY) # np.sum(img, axis=2)
@@ -348,7 +353,7 @@ def cut(img):
             
     return top, bottom, left, right
 
-
+# Crops the image and turns it into gray scale
 def cutpr(img):
     t,b,l,r = cut(img)
     if b > t+100 and r > l+100:
@@ -510,7 +515,7 @@ def extract(img,col,top,bottom,ll):
 #        cv2.destroyAllWindows()
     return peak,dist
 
-
+# Reads the annotation XML file and converts them into numpy arrays
 def readxml(fxml):
     imgd = {}
     colordict = {'Thyroid':80,'Trachea':0,'Nodule':150,'Benign':150,'Papillary':220, 'Malignant':220}
@@ -571,7 +576,7 @@ def readxml(fxml):
         imgd[ann.attrib['name']] = i2c 
     return imgd
 
-
+# converts numpy arrays into one-hot vectors
 def onehot(img):
     i2 = np.uint8(np.zeros((320,512)+(4,)))
     i2[img==1] = [0,1,0,0]
@@ -583,6 +588,7 @@ def onehot(img):
     
     return i2
 
+# decode the one-hot vector into color for display
 def decode(himg):
     himg = himg.copy()
     himg[himg<0.45] = 0
@@ -602,58 +608,82 @@ def decode(himg):
     
     return yimg
 
-
+# display the original image, Training data and the Prediction
 def disp_decode(x,y,lb,i):
     
     print(lb[i])
     displt(x[i])
     displt(decode(y[i]))
 
-# mix the annotated output and input image
+# add the annotated output and input image for better visual
 def fusion(img,img2):
     img3 = cv2.add(7*np.uint8(img/12),5*np.uint8(img2/12))
     img2[img2<10] = 0
     img3[img2==0] = img[img2==0]
     return img3
     
-def save_res(x,y,yt,lb):
+# save the results into local folder
+def save_res(x,y,yt,lb,model = None):
     n = x.shape[0]
     
     for i in range(n):
         ximg = np.uint8(np.zeros((320,512,3)))
+        xi = (x[i].astype('float32').reshape((1,320,512,1)))
         ximg[:,:,0] = np.uint8(x[i].reshape((320,512))*255)
         ximg[:,:,1] = ximg[:,:,0]
         ximg[:,:,2] = ximg[:,:,0]
+        pr = model.predict(xi)[0]
+        p = decode(pr)
+        xi = (flip(x[i]).astype('float32').reshape((1,320,512,1)))
+        pr2 = model.predict(xi)[0]
+        p2 = flip(decode(pr2))
+        p3 = np.uint8(0.5*p+0.5*p2)
         
-        i3 = np.hstack((ximg,fusion(ximg,decode(y[i])),fusion(ximg,decode(yt[i]))))
+        i3 = np.hstack((ximg,fusion(ximg,p3),fusion(ximg,decode(yt[i]))))
         cv2.imwrite('/test/Ito/result/'+str(i)+'.jpg',i3)
-        iou_m = sm.metrics.IOUScore()(yt[i],y[i])
+        
         iou_0 = sm.metrics.IOUScore()(yt[i,:,:,0].reshape(1,1,-1),y[i,:,:,0].reshape(1,1,-1))
         iou_1 = sm.metrics.IOUScore()(yt[i,:,:,1].reshape(1,1,-1),y[i,:,:,1].reshape(1,1,-1))
         iou_2 = sm.metrics.IOUScore()(yt[i,:,:,2].reshape(1,1,-1),y[i,:,:,2].reshape(1,1,-1))
         iou_3 = sm.metrics.IOUScore()(yt[i,:,:,3].reshape(1,1,-1),y[i,:,:,3].reshape(1,1,-1))
-        th = findthresh(yt[i],y[i])
+        #th = findthresh(yt[i],y[i])
         if iou_2>0.1 or iou_3>0.1:
-            print(i,lb[-500+i],np.round(iou_m,2),np.round(iou_0,2),np.round(iou_1,2),np.round(iou_2,2),np.round(iou_3,2))
+            print(i,lb[-500+i],np.round(iou_0,2),np.round(iou_1,2),np.round(iou_2,2),np.round(iou_3,2))
 
-def cfname(iname,model,size=(0,-1,0,-1),c=1):
-    
+# loads the image from the path
+def getimg(iname):
     img = cv2.imread('/test/Ito/SelectedP/' + iname)
-    
+
     if type(img) == type(None):
-        img = cv2.imread('/test/Ito/Selected1/' + iname)
-    if c ==1:
+        return(cv2.imread('/test/Ito/Selected1/' + iname))
+    
+    return img
+            
+# display input image, flipped and added prediction 
+def cfname(iname,model,size=(0,-1,0,-1),c=1,img = None):
+    
+    img = img
+    if type(img) == type(None): 
+        img = getimg(iname)
+        
+    if c == 1:
         xi = img_resize(cutpr(img)[size[0]:size[1],size[2]:size[3]])[0]
-    else:
+        
+    elif c==0:
         xi = img_resize(cutpr(img)[0:-1,0:-1])[0]
+    else:
+        xi = img_resize(img)[0]
+        
     x = (xi.astype('float32').reshape((1,320,512,1)))/255
     ximg = np.uint8(np.zeros((320,512,3)))
     ximg[:,:,0] = np.uint8(x[0].reshape((320,512))*255)
     ximg[:,:,1] = ximg[:,:,0]
     ximg[:,:,2] = ximg[:,:,0]
-    p = decode(model.predict(x)[0])
+    pr = model.predict(x)[0]
+    p = decode(pr)
     x = (flip(xi).astype('float32').reshape((1,320,512,1)))/255
-    p2 = flip(decode(model.predict(x)[0]))
+    pr2 = model.predict(x)[0]
+    p2 = flip(decode(pr2))
     p3 = np.uint8(0.5*p+0.5*p2)
     displt(fusion(ximg,p))
     displt(fusion(ximg,p2))
@@ -670,7 +700,7 @@ def cfname(iname,model,size=(0,-1,0,-1),c=1):
     displt(i2)
     #cv2.imwrite('/test/Ito/result/'+iname,i2)
     
-    return i2
+    return i2,(pr+pr2)/2
     
     
 def cfnum(inum,model,x,y,pred):
@@ -756,7 +786,7 @@ def flip(img):
     # np.flip(img,len(img.shape)-2)
     return cv2.flip(img, 1)
 
-
+# find the IOU for a given index in the array
 def indexiou(index,yt,yp,lb):
     l = yt.shape[0]
     l_tr = lb[:-500][p[:800]]
@@ -770,7 +800,7 @@ def indexiou(index,yt,yp,lb):
 
         print(i,'     ',l_tr[i],'     ',np.round(iou_2,2),'     ',np.round(iou_3,2))
         
-    
+# find the best threshold for an image
 def image_thresh(yt,yp,lbl,index):
     
     n = yt.shape[0]
@@ -792,6 +822,7 @@ def image_thresh(yt,yp,lbl,index):
         print(i,'  ',lbl[i],'  ',t,'  ',th)
     return tl
 
+# find the best threshold for a particular class
 def class_thresh(yt,yp,index):
     m1 = yt[:,:,:,index].copy()
 
