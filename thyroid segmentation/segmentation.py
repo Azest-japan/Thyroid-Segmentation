@@ -16,6 +16,7 @@ from tensorflow.keras.layers import Conv2D, AveragePooling2D, Flatten, Dense, Ba
 from tensorflow.compat.v1.keras.backend import set_session
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras import backend as K
+
 #from tensorflow.keras.utils import to_categorical
 #from tensorflow.keras.preprocessing.image import ImageDataGenerator
 #from tensorflow.keras.datasets import mnist
@@ -52,9 +53,8 @@ if gpus:
         print(e)
 
 #config =  tf.ConfigProto()
-config = tf.compat.v1.ConfigProto()
-config.gpu_options.allow_growth = True
 
+                     
 input_shape = (320, 512, 1)
 n_filters = 32
 cf_size = (3, 3)   # convolution filter size
@@ -187,9 +187,11 @@ def load_model2(fm, fw, lr = 0.0001):
     
     return model
 
+# Building the model
 # resnet block
 def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,activation='relu',sno='0'):
     # sno = serial number of the unit
+    
     if strides == 1 and int(sno)<50:
         def conv(x):
             c1 = Conv2D(int(nf/8),
@@ -252,18 +254,19 @@ def resunit(inp,nf=32,Ksize=3,padding='same',strides=1,BN='True',BN_first=True,a
 # resnet encoder or unet is created based on the 'net' parameter
 def resUnet(input_shape,n_classes=4,nf=32,nb=4,net='unet',dropout=0.25):
     # nb defines the number of resnet blocks
+    
     Ksize=3
     padding='same'
     strides=1
     ld = {}   # stores intermediate layers for concatenation in unet
-    nf = 32   # number of filters at the starting
+    nf = 32   # number of filters at the start
     
     
     inputs = Input(input_shape,name='inp')
     x = resunit(inputs,nf=nf,Ksize=3,padding='same',strides=1,BN_first=False,activation='relu',sno='00')
     x = Conv2D(nf,kernel_size=3,strides=1,padding='same',kernel_initializer='he_normal', kernel_regularizer=l2(1e-4), name='C01')(x)
     x = add([inputs, x],name='A0')
-    ld['A0'] = x
+    ld['A0'] = x 
     
     for i in range(nb):
         nf = 2*nf
@@ -302,34 +305,7 @@ def resUnet(input_shape,n_classes=4,nf=32,nb=4,net='unet',dropout=0.25):
     model = Model(inputs=inputs, outputs=outputs, name=net)
     return model,ld
 
-# integrate the learned resnet encoder into unet
-def transfer(model,input_shape,ld,n_classes=4,nb=4,dropout=0.2):
-    
-    x = model.layers[[l.name for l in model.layers].index('A0'+str(nb))].output
-    nf = 512
-    Ksize=3
-    padding='same'
-    strides=1
-    
-    for i in range(nb):
-        nf = int(nf/2)
-        if i<2:
-            x = Conv2DTranspose(nf, kernel_size=Ksize, strides=2, padding=padding, kernel_initializer='he_normal', name='C2DT'+str(i))(x)
-        else:
-            x = UpSampling2D((2,2), name='up'+str(i))(x)
-        x = concatenate([ld['A'+str(nb-i-1)],x],axis=3,name='CT'+str(i))
-        y = resunit(x,nf,sno=str((i+5)*10))
-        y = resunit(y,nf,sno=str((i+5)*10+1))
-        x = Conv2D(nf,kernel_size=1,padding='same',strides=1,name='1C'+str((i+5)*10))(x)
-        x = add([x,y],name='A0'+str(i+5))
-        if i ==nb-1:
-            x = Dropout(dropout)(x)
-      
-    x = Conv2D(n_classes,kernel_size=1,padding='same',strides=1,name='out0')(x)
-    outputs = Activation('sigmoid',name='out')(x)
-    m2 = Model(inputs=model.input, outputs=outputs,name='unet')
-    #print(m2.summary())
-    return m2
+
     
 # Initialize the Resnet encoder
 def initialize(input_shape=(320,512,1),n_classes=4,net = 'resnet',dropout = 0.25):
@@ -378,59 +354,36 @@ def train_resnet(model,lr = 0.0001,epochs = 12, batch_size = 16):
     
     return model
 
-
-
-def weighted_binary_crossentropy(w,batch_size):
-    a = K.ones((batch_size,320,512,4))
-    b = K.ones((batch_size,320,512,4))
-    #c = K.ones((batch_size,320,512,4))
-    #d = K.ones((batch_size,320,512,4))
+# integrate the learned resnet encoder into unet
+def transfer(model,input_shape,ld,n_classes=4,nb=4,dropout=0.2):
+    # nb defines the number of resnet blocks
     
-    def loss(y_true, y_pred):
-
-        # Calculate the binary crossentropy
-        b_ce = K.binary_crossentropy(y_true, y_pred)
-        alpha = 0.5
-        b_ce = b_ce * a[:,:,:,1].assign(b[:,:,:,1] + alpha*K.cast(((y_true>[0.5,1,1,1])[:,:,:,0]  == (y_pred>[1,0.5,1,1])[:,:,:,1]),'float32'))
-        b_ce = b_ce * a[:,:,:,3].assign(b[:,:,:,3] + alpha*K.cast(((y_true<[1,1,1,0.5])[:,:,:,3]  == (y_pred>[1,1,1,0.5])[:,:,:,3]),'float32'))
-        
-        
-        # Apply the weights
-        weighted_b_ce = w * b_ce
-        jloss = sm.losses.JaccardLoss(class_weights=w)
-        dl = sm.losses.DiceLoss()
-        
-        l_0 = dl(K.flatten(y_true[:,:,:,0]),K.flatten(y_pred[:,:,:,0]))
-        l_1 = dl(K.flatten(y_true[:,:,:,1]),K.flatten(y_pred[:,:,:,1]))
-        l_2 = dl(K.flatten(y_true[:,:,:,2]),K.flatten(y_pred[:,:,:,2]))
-        l_3 = dl(K.flatten(y_true[:,:,:,3]),K.flatten(y_pred[:,:,:,3]))
-        
-        l = (w[0]*l_0 + w[1]*l_1 + w[2]*l_2*K.cast(l_2 > 0.06,'float32') + w[3]*l_3*K.cast(l_3 > 0.06,'float32') )/(w[0] + w[1] + w[2]*K.cast(l_2 > 0.1,'float32') + w[3]*K.cast(l_3>0.1,'float32'))
-        
-        """ 
-        tf.config.experimental_run_functions_eagerly(True)
-       
-        @tf.function
-        def f(x):
-          if x > 1:
-            return 1
-          else:
-            return 0
-        
-        ch1 = f(K.sum(y_true[:,:,:,2]))
-        ch2 = f(K.sum(y_true[:,:,:,3]))
-        
-        if (ch1<1 and ch2>0) or (ch1>0 and ch2<1):
-            l = 1 - (1-l)*4/3
-        elif ch1 and ch2:
-            l = 1 - (1-l)*2
-        """
+    x = model.layers[[l.name for l in model.layers].index('A0'+str(nb))].output
+    nf = 512
+    Ksize=3
+    padding='same'
+    strides=1
     
-        # Return the mean error
-        return K.mean(weighted_b_ce) + l
-
-    return loss 
-
+    for i in range(nb):
+        nf = int(nf/2)
+        if i<2:
+            x = Conv2DTranspose(nf, kernel_size=Ksize, strides=2, padding=padding, kernel_initializer='he_normal', name='C2DT'+str(i))(x)
+        else:
+            x = UpSampling2D((2,2), name='up'+str(i))(x)
+        x = concatenate([ld['A'+str(nb-i-1)],x],axis=3,name='CT'+str(i))
+        y = resunit(x,nf,sno=str((i+5)*10))
+        y = resunit(y,nf,sno=str((i+5)*10+1))
+        x = Conv2D(nf,kernel_size=1,padding='same',strides=1,name='1C'+str((i+5)*10))(x)
+        x = add([x,y],name='A0'+str(i+5))
+        if i ==nb-1:
+            x = Dropout(dropout)(x)
+      
+    x = Conv2D(n_classes,kernel_size=1,padding='same',strides=1,name='out0')(x)
+    outputs = Activation('sigmoid',name='out')(x)
+    m2 = Model(inputs=model.input, outputs=outputs,name='unet')
+    
+    #print(m2.summary())
+    return m2
 
 # self defined F1 metric
 def f1(y_true, y_pred):
@@ -455,8 +408,62 @@ def f1(y_true, y_pred):
     
     return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
+# self defined loss for segmentation
+def weighted_binary_crossentropy(w,batch_size):
+    a = K.ones((batch_size,320,512,4))
+    b = K.ones((batch_size,320,512,4))
+    #c = K.ones((batch_size,320,512,4))
+    #d = K.ones((batch_size,320,512,4))
+    
+    def loss(y_true, y_pred):
 
-def train_unet(model,lr = 0.0001,epochs = 12, batch_size = 12):
+        # Calculate the binary crossentropy
+        b_ce = K.binary_crossentropy(y_true, y_pred)
+        alpha = 0.5
+        b_ce = b_ce * a[:,:,:,1].assign(b[:,:,:,1] + alpha*K.cast(((y_true>[0.5,1,1,1])[:,:,:,0]  == (y_pred>[1,0.5,1,1])[:,:,:,1]),'float32'))
+        b_ce = b_ce * a[:,:,:,3].assign(b[:,:,:,3] + alpha*K.cast(((y_true<[1,1,1,0.5])[:,:,:,3]  == (y_pred>[1,1,1,0.5])[:,:,:,3]),'float32'))
+        
+        
+        # Apply the weights
+        weighted_b_ce = w * b_ce
+        jloss = sm.losses.JaccardLoss(class_weights=w)
+        dl = sm.losses.DiceLoss()
+        
+        l_0 = dl(y_true[:,:,:,0],y_pred[:,:,:,0])
+        l_1 = dl(y_true[:,:,:,1],y_pred[:,:,:,1])
+        l_2 = dl(y_true[:,:,:,2],y_pred[:,:,:,2])
+        l_3 = dl(y_true[:,:,:,3],y_pred[:,:,:,3])
+        
+        # calculate the dice loss
+        l = (w[0]*l_0 + w[1]*l_1*K.cast(l_1 > 0.06,'float32') + w[2]*l_2*K.cast(l_2 > 0.06,'float32') + w[3]*l_3*K.cast(l_3 > 0.06,'float32') )/(w[0] + w[1]*K.cast(l_1 > 0.1,'float32') + w[2]*K.cast(l_2 > 0.1,'float32') + w[3]*K.cast(l_3>0.1,'float32'))
+        
+        #l = dl(y_true,y_pred)
+        """ 
+        tf.config.experimental_run_functions_eagerly(True)
+       
+        @tf.function
+        def f(x):
+          if x > 1:
+            return 1
+          else:
+            return 0
+        
+        ch1 = f(K.sum(y_true[:,:,:,2]))
+        ch2 = f(K.sum(y_true[:,:,:,3]))
+        
+        if (ch1<1 and ch2>0) or (ch1>0 and ch2<1):
+            l = 1 - (1-l)*4/3
+        elif ch1 and ch2:
+            l = 1 - (1-l)*2
+        """
+    
+        # Return the mean error plus the dice loss
+        return K.mean(weighted_b_ce) + l
+
+    return loss 
+
+
+def train_unet(model,lr = 0.0001,epochs = 8, batch_size = 8):
     #tensorboard = TensorBoard(log_dir='C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\logs\\tb1')
     
     #for i in range(1,[l.name for l in model.layers].index('BN10')):
@@ -464,6 +471,13 @@ def train_unet(model,lr = 0.0001,epochs = 12, batch_size = 12):
         #model.layers[i].trainable = False
     #sess = tf.compat.v1.keras.backend.get_session()
     #K.set_session(sess)
+    
+    config = tf.compat.v1.ConfigProto()
+    config.gpu_options.allow_growth = True
+    os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2"
+    sess = tf.compat.v1.Session(config=config)
+    set_session(sess)
+    
     opt = keras.optimizers.Adam(learning_rate=lr)
     
     #model = multi_gpu_model(model, gpus=2)
@@ -479,7 +493,7 @@ def train_unet(model,lr = 0.0001,epochs = 12, batch_size = 12):
     bloss = tf.keras.losses.BinaryCrossentropy()
     dl = sm.losses.DiceLoss(class_weights=class_weights)
     
-    model.compile(loss= weighted_binary_crossentropy(K.variable(class_weights),batch_size), optimizer=opt, metrics=['accuracy',iou,jloss])
+    model.compile(loss= weighted_binary_crossentropy(K.variable(class_weights),batch_size), optimizer=opt, metrics=[iou,jloss])
     
     checkpointer = ModelCheckpoint(filepath="/test/Ito/unet_weights2_"+str(lr)+".hdf5", 
                                     monitor = 'val_iou_score',
@@ -495,11 +509,30 @@ def train_unet(model,lr = 0.0001,epochs = 12, batch_size = 12):
     rotation_range=8,
     zoom_range=1/16)
     
-    model.fit(datagen.flow(x_tr, y_tr.astype('float32'), batch_size=batch_size),
-                    steps_per_epoch=len(x_tr) / batch_size, epochs=epochs,validation_data=(xtst, ytst.astype('float32')),callbacks=[checkpointer])
+    m = 0.7
+    epn = 0
     
+    for i in range(epochs):
+        #for j in range(int(x_tr.shape[0]/batch_size)):
+        #    model.fit(datagen.flow(x_tr[j*batch_size:(j+1)*batch_size], y_tr[j*batch_size:(j+1)*batch_size].astype('float32')),verbose=0)
+        
+        model.fit(datagen.flow(x_tr, y_tr.astype('float32'),batch_size=batch_size),steps_per_epoch=int(x_tr.shape[0] / batch_size),epochs=1)
+        
+        gc.collect()
+        sc = iou(ytst,model.predict(xtst)).numpy()
+        print(i,m,sc)
+        if sc>m:
+            m = sc
+            epn = i
+            print('saving.....',i)
+            model.save_weights("/test/Ito/unet_weights2_"+str(lr)+".hdf5")
+    
+    print(m,epn)
     
     return model
+
+
+' <-- Execution --> '
 
 def load_m(fw1='/test/Ito/unet_weights2_0.0001.hdf5',dropout=0.2):
     
@@ -508,7 +541,7 @@ def load_m(fw1='/test/Ito/unet_weights2_0.0001.hdf5',dropout=0.2):
     fm = '/test/Ito/unet.h5'
     fw0 = '/test/Ito/resnet_weights2_0.0001.hdf5'
 
-    model,ld = initialize(n_classes=3,dropout=dropout)
+    model,ld = initialize(n_classes=4,dropout=dropout)
     #tf.compat.v1.enable_eager_execution() 
     model = transfer(model,input_shape,ld,n_classes=4,nb=4,dropout=dropout)
     model.load_weights(fw1)
@@ -533,6 +566,10 @@ for i in range(yt.shape[0]):
     s = np.sum(yt[i,:,:,2])
     if s < 500 and s>0:
         yt[i,:,:,2][yt[i,:,:,2]>0] = 0
+        
+    s = np.sum(yt[i,:,:,3])
+    if s < 400 and s>0:
+        yt[i,:,:,3][yt[i,:,:,3]>0] = 0
 
 p = np.random.permutation(len(xt))
 xt = xt[p[:]]
@@ -555,7 +592,7 @@ x_tr = x_tr.astype('float32')
 x_tr = x_tr/255
 
 
-model = train_unet(model,lr = 0.0002,epochs = 6,batch_size = 8)
+model = train_unet(model,lr = 0.0001,epochs = 4,batch_size = 8)
 model.save('/test/Ito/unet_2.h5')
 
 score = model.evaluate(xtst.reshape(xtst.shape+(1,)), ytst, verbose=0)
