@@ -95,8 +95,8 @@ maskcolor = dict((i+1,clr[i]) for i in range(8))
 
 # loads model
 def load_model2():
-    model = load_model('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\mymodel.h5')
-    model.load_weights('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\best_weights.hdf5')
+    model = load_model('/test/Ito/mymodel.h5')
+    model.load_weights('/test/Ito/best_weights.hdf5')
     opt = keras.optimizers.Adam(lr=0.0002, beta_1=0.9, beta_2=0.999, epsilon=None, decay=0.0, amsgrad=False)
     model.compile(loss='categorical_crossentropy',
                   optimizer=opt,
@@ -144,6 +144,12 @@ def displt(img,imgl=None):
 #cv2.waitKey(0)
 #cv2.destroyAllWindows()
 
+def imgplot(img):
+    if len(img.shape) == 3:
+        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    else:
+        plt.imshow(img)
+    plt.show()
 
 def gray(img):
     return np.uint8(cv2.cvtColor(img,cv2.COLOR_BGR2GRAY))
@@ -158,7 +164,6 @@ def quality(img):
 
 # enhance the quality of cut image using CLAHE method
 def enhanceQ(img,q,cl=0.75):
-    
     
     clahe = cv2.createCLAHE(clipLimit=cl, tileGridSize=(8,8))
     img = clahe.apply(img)
@@ -336,7 +341,7 @@ def cut(img):
             break
 
     judge_len = 30                             
-    min_unique = 30
+    min_unique = 40  # tentative
     left = 0
     right = mono_img.shape[1]-1
     for l in range(mono_img.shape[1]-judge_len):
@@ -440,7 +445,7 @@ def scale(img,top,bottom,left):
         #cv2.imwrite('C:\\Users\\AZEST-2019-07\\Desktop\\pyfiles\\scale.png',cv2.resize(img[0:row+15,col-32:col+32], dsize=(128,2*(row+15))))
     
     i2[:,col] = [100,50,255]
-    cv2.imshow('org',i2[max(top-10,0):ll[0][0]+30,:left])
+    cv2.imshow('org',i2[max(top-10,0):ll[0][0]+30,:max(left,col+20)])
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     return col[0],ll[0]
@@ -516,8 +521,10 @@ def extract(img,col,top,bottom,ll):
     return peak,dist
 
 # Reads the annotation XML file and converts them into numpy arrays
-def readxml(fxml):
-    imgd = {}
+def readxml(fxml,imgd=None):
+    if type(imgd) == type(None):
+        imgd = {}
+    
     colordict = {'Thyroid':80,'Trachea':0,'Nodule':150,'Benign':150,'Papillary':220, 'Malignant':220}
     labeldict = {'Thyroid':1,'Nodule':2,'Benign':2,'Malignant':7,'Papillary':7}
     hotdict = {'Thyroid':1,'Nodule':2,'Benign':2,'Malignant':3,'Papillary':3}
@@ -544,6 +551,8 @@ def readxml(fxml):
             i3 = cv2.imread('/test/Ito/SelectedP/' + ann.attrib['name'])
         if type(i3) == type(None):
             i3 = cv2.imread('/test/Ito/nsp/' + ann.attrib['name'])
+        if type(i3) == type(None):
+            i3 = cv2.imread('/test/Ito/test/' + ann.attrib['name'])
             
         #print(ann.attrib['name'])
         t,b,l,r = cut(i3)
@@ -603,8 +612,27 @@ def decode(himg):
     i=1
     yimg[himg[:,:,i-1]!=0] = himg[:,:,i-1][himg[:,:,i-1]!=0].reshape(-1,1)*np.array([8,8,8]).reshape(1,-1)
     yimg[himg[:,:,i]!=0] = himg[:,:,i][himg[:,:,i]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1) + (1-himg[:,:,i])[himg[:,:,i]!=0].reshape(-1,1)*np.array([50,100,50]).reshape(1,-1)
-    yimg[himg[:,:,i+1]!=0] = himg[:,:,i+1][himg[:,:,i+1]!=0].reshape(-1,1)*np.array([50,50,200]).reshape(1,-1) + (1-himg[:,:,i+1])[himg[:,:,i+1]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1)
-    yimg[himg[:,:,i+2]!=0] = himg[:,:,i+2][himg[:,:,i+2]!=0].reshape(-1,1)*np.array([200,50,50]).reshape(1,-1) + (1-himg[:,:,i+2])[himg[:,:,i+2]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1)
+    yimg[himg[:,:,i+1]!=0] = himg[:,:,i+1][himg[:,:,i+1]!=0].reshape(-1,1)*np.array([200,100,0]).reshape(1,-1) + (1-himg[:,:,i+1])[himg[:,:,i+1]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1)
+    yimg[himg[:,:,i+2]!=0] = himg[:,:,i+2][himg[:,:,i+2]!=0].reshape(-1,1)*np.array([20,80,240]).reshape(1,-1) + (1-himg[:,:,i+2])[himg[:,:,i+2]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1)
+    
+    return yimg
+
+def decode2(himg):
+    himg = himg.copy()
+    himg[himg<0.45] = 0
+    himg[:,:,1][(himg[:,:,0]<0.5)*(himg[:,:,1]>0.45)] = 1
+    himg[:,:,1][(himg[:,:,0]>0.5)*(himg[:,:,1]>0.75)] = 1
+    himg[:,:,1][(himg[:,:,0]>0.75)*(himg[:,:,1]<0.75)] = 0
+    himg[:,:,2][himg[:,:,2]<0.5] = 0
+    himg[:,:,3][himg[:,:,3]<0.5] = 0
+    
+    yimg = np.uint8(np.ones((320,512,3)))
+    #print(himg.shape)
+    i=1
+    yimg[himg[:,:,i-1]!=0] = himg[:,:,i-1][himg[:,:,i-1]!=0].reshape(-1,1)*np.array([0,0,0]).reshape(1,-1)
+    yimg[himg[:,:,i]!=0] = himg[:,:,i][himg[:,:,i]!=0].reshape(-1,1)*np.array([50,200,50]).reshape(1,-1) + (1-himg[:,:,i])[himg[:,:,i]!=0].reshape(-1,1)*np.array([50,100,50]).reshape(1,-1)
+    yimg[himg[:,:,i+1]!=0] = np.array([200,100,0]).reshape(1,-1) 
+    yimg[himg[:,:,i+2]!=0] = np.array([20,80,240]).reshape(1,-1)
     
     return yimg
 
@@ -640,7 +668,7 @@ def save_res(x,y,yt,lb,model = None):
         p3 = np.uint8(0.5*p+0.5*p2)
         
         i3 = np.hstack((ximg,fusion(ximg,p3),fusion(ximg,decode(yt[i]))))
-        cv2.imwrite('/test/Ito/result/'+str(i)+'.jpg',i3)
+        cv2.imwrite('/test/Ito/result/'+lb[-500+i],i3)
         
         iou_0 = sm.metrics.IOUScore()(yt[i,:,:,0].reshape(1,1,-1),y[i,:,:,0].reshape(1,1,-1))
         iou_1 = sm.metrics.IOUScore()(yt[i,:,:,1].reshape(1,1,-1),y[i,:,:,1].reshape(1,1,-1))
@@ -650,6 +678,7 @@ def save_res(x,y,yt,lb,model = None):
         if iou_2>0.1 or iou_3>0.1:
             print(i,lb[-500+i],np.round(iou_0,2),np.round(iou_1,2),np.round(iou_2,2),np.round(iou_3,2))
 
+            
 # loads the image from the path
 def getimg(iname):
     img = cv2.imread('/test/Ito/SelectedP/' + iname)
@@ -691,16 +720,17 @@ def cfname(iname,model,size=(0,-1,0,-1),c=1,img = None):
     displt(fusion(ximg,p3))
     
     img = cv2.imread('/test/Ito/comp/'+iname)
-    
-    img = img[:,int(img.shape[1]/2):,:]
-    t,b,l,r = cut(img)
-    img = img[t:b,l:r]
-    img = img_resize(img)[0]
-    i2 = np.hstack((ximg,fusion(ximg,p3),img))
-    displt(i2)
+    i2 = []
+    if type(img)!= type(None):
+        img = img[:,int(img.shape[1]/2):,:]
+        t,b,l,r = cut(img)
+        img = img[t:b,l:r]
+        img = img_resize(img)[0]
+        i2 = np.hstack((ximg,fusion(ximg,p3),img))
+        displt(i2)
     #cv2.imwrite('/test/Ito/result/'+iname,i2)
     
-    return i2,(pr+pr2)/2
+    return i2,pr
     
     
 def cfnum(inum,model,x,y,pred):
@@ -840,3 +870,58 @@ def class_thresh(yt,yp,index):
             th = j
         
     return t,th
+
+def detect_color(img,bgrLower,bgrUpper):
+    img_mask = cv2.inRange(img, bgrLower, bgrUpper) # BGRからマスクを作成
+    result = cv2.bitwise_and(img, img, mask=img_mask)
+    return result
+
+
+def calcdist(p1,p2):
+    return np.sqrt(np.square(p1[0]-p2[0]) + np.square(p1[1]-p2[1]))
+
+
+def ldist(h):
+    n,d = h.shape
+    maxd = 0  # largest distance
+    maxp = None
+    xL,yL = mid = np.int32(np.average(h,axis=0))
+    dp = None   
+    mcd = 0   # maximum distance through the center
+    for i in range(n):
+        x1,y1 = h[i]
+        xL,yL = mid
+        x,y = (2*xL-x1),(2*yL-y1)
+        cnt = 0
+
+        while True:
+            pos = cv2.pointPolygonTest(h,(x,y),True)
+            cnt += 1
+            #print(pos,x,y,xL,yL,x1,y1,' ',0)
+            if abs(pos)<3 or cnt>10:
+                #print(pos,x,y,xL,yL,x1,y1,' ',1)
+                break
+
+            elif pos<0 and abs(pos)>=3:
+                x,y = np.int32(((x+xL)/2,(y+yL)/2))
+                #print(pos,x,y,xL,yL,x1,y1,' ',2)
+
+            elif pos>=0 and abs(pos)>=3:
+                cx,cy = x,y
+                x,y = (2*x-xL),(2*y-yL)
+                xL,yL = cx,cy
+
+                #print(pos,x,y,xL,yL,x1,y1,' ',3)
+
+        cd = calcdist(h[i],[x,y])
+        if mcd < cd:
+            mcd = cd
+            dp = [h[i],np.int32([x,y])]
+
+        for j in range(i+1,n):
+            d = calcdist(h[i],h[j])
+            if maxd < d:
+                maxd = d
+                maxp = [h[i],h[j]]
+        #print('')
+    return maxd,maxp,mcd,dp
