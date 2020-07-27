@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jul 27 10:25:51 2020
+Created on Mon Jul 27 13:55:04 2020
 
-@author: AZEST_ANALYTICS
+@author: Lenovo
 """
+
 
 
 import numpy as np
@@ -19,7 +20,7 @@ from tensorflow.keras.models import model_from_json, load_model,Model,Sequential
 from tensorflow.keras import metrics
 from tensorflow.keras.layers import InputLayer, Conv2D, AveragePooling2D, Flatten, Dense, BatchNormalization, Activation, Input, add, Dropout, Conv2DTranspose, UpSampling2D, concatenate, MaxPooling2D
 #from tensorflow.keras.layers import GaussianDropout
-from tensorflow.compat.v1.keras.backend import set_session
+from tensorflow.keras.backend import set_session
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras import backend as K
 from tensorflow.keras.datasets import mnist
@@ -34,17 +35,43 @@ sns.set_style('darkgrid')
 def reorganizeMNIST(x, y):
     assert x.shape[0] == y.shape[0]
     
-    dataset = {i: [] for i in range(10)}
+    dataset = {}
     l = {i: 0 for i in range(10)}
     
     for i in range(x.shape[0]):
-        dataset[y[i]].append(x[i])
-        l[y[i]]+=1
+        dataset[i] = x_tr[np.where(y_tr==i)[0]]
     
     return dataset,l
 
 
-dataset,l = reorganizeMNIST(x_tr, y_tr)
+dataset,_ = reorganizeMNIST(x_tr, y_tr)
+
+
+def getb(dataset,k):
+    batch = []
+    labels = []
+    
+    for l in range(10):
+        indices = np.random.randint(0,len(dataset[l]),k)
+        
+        batch.append([dataset[l][i] for i in indices])
+        labels += [l] * k
+
+    batch = np.array(batch).reshape(10 * k, 28, 28, 1)
+    labels = np.array(labels)
+    
+    # Shuffling labels and batch the same way
+    s = np.arange(batch.shape[0])
+    np.random.shuffle(s)
+    
+    batch = batch[s]
+    labels = labels[s]
+    
+    return batch, labels
+    
+    
+
+
 # tsne from raw data
 def scatter(x, labels):
     # We choose a color palette with seaborn.
@@ -61,6 +88,9 @@ def scatter(x, labels):
     ax.axis('tight')
     
     plt.show()
+    
+    
+    
     
 def create_model(inp_size):
     
@@ -88,6 +118,7 @@ def create_model(inp_size):
 
 
 
+
 def triplet_loss():
     
     def all_diffs(a, b):
@@ -111,10 +142,6 @@ def train(model,xt,yt,epochs,batch_size):
     
     
     
-    
-    
-    
-    
     None
     
     
@@ -122,15 +149,3 @@ def train(model,xt,yt,epochs,batch_size):
     
     
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-
