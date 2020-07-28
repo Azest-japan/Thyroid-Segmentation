@@ -82,3 +82,35 @@ def readxml(fxml,imgdict):
     return imgdict
 
 readxml(fxml,imgdict)
+
+
+'''
+def saveframe(vpath,spath,start,end=None):
+    vs = cv2.VideoCapture(vpath)
+    (W, H) = (None, None)
+
+    # try to determine the total number of frames in the video file
+    try:
+        prop = cv2.cv.CV_CAP_PROP_FRAME_COUNT if imutils.is_cv2() \
+            else cv2.CAP_PROP_FRAME_COUNT
+        total = int(vs.get(prop))
+        print("[INFO] {} total frames in video".format(total))
+        
+    except:
+        print("[INFO] could not determine # of frames in video")
+        print("[INFO] no approx. completion time can be provided")
+        total = -1
+    
+    f_rate = 30 # total/length
+    fno = 0
+    # loop over frames from the video file stream
+    if end == None:
+        end = total/30
+        
+    for i in range(end*f_rate):
+        (grabbed, frame) = vs.read()
+        if i> start*f_rate:
+            cv2.imwrite(spath+'/f-'+str(fno)+'.jpg',frame)
+            fno += 1
+
+'''
