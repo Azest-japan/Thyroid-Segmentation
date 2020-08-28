@@ -145,6 +145,16 @@ def displt(img,imgl=None):
 #cv2.destroyAllWindows()
 
 def imgplot(img):
+    img = img.copy()
+    fig = plt.figure()
+    
+    if np.sum(img.shape)>1000:
+        fig = plt.gcf()
+        fig.set_size_inches(24,12)
+        
+    else:
+        fig.set_size_inches(6,4)
+        
     if len(img.shape) == 3:
         plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
     else:
