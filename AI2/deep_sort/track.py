@@ -105,7 +105,23 @@ class Track:
         ret[2] *= ret[3]
         ret[:2] -= ret[2:] / 2
         return ret
+    
+      def to_xyah(self):
+        """Convert bounding box to format `(center x, center y, aspect ratio,
+        height)`, where the aspect ratio is `width / height`.
+       
 
+        Returns
+        -------
+        ndarray
+            The bounding box.
+
+        """
+        ret = self.tlwh.copy()
+        ret[:2] += ret[2:] / 2
+        ret[2] /= ret[3]
+        return ret
+    
     def to_tlbr(self):
         """Get current position in bounding box format `(min x, miny, max x,
         max y)`.
@@ -119,6 +135,24 @@ class Track:
         ret = self.to_tlwh()
         ret[2:] = ret[:2] + ret[2:]
         return ret
+    
+    def copy_track(self,tr):
+        self.mean = tr.mean
+        self.covariance = tr.covariance
+        self.track_id = tr.track_id
+        self.hits = tr.hits
+        self.age = tr.age
+        self.time_since_update = tr.time_since_update
+        
+        self.pastpos = tr.pastpos
+        self.dh = tr.dh
+        self.dhd = tr.dhd
+        
+        self.check_det = tr.check_det
+        self.theta = tr.theta
+        self.check_switch = False
+        self.checkspot = checkspot
+        
     
     def caltheta(self):
         n = len(self.pastpos)

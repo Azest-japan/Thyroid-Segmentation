@@ -6,6 +6,7 @@ from . import linear_assignment
 from . import iou_matching
 from .track import Track
 from analysis import *
+from copy import deepcopy
 
 class Tracker:
     """
@@ -44,7 +45,7 @@ class Tracker:
         self.n_init = n_init
 
         self.kf = kalman_filter.KalmanFilter()
-        self.tracks = []
+        self.tracks = []             # stores tracks
         self.trackid_indexid = {}
         self.indexid_trackid = {}
         self._next_id = 0
@@ -73,7 +74,7 @@ class Tracker:
         """ 
         
         shape = frame.shape[:2]  # used for track location during initialization - middle, edge
-        # Run matching cascade.
+        # Run matching cascade stores track index. 
         matches, unmatched_tracks, unmatched_detections = \
             self._match(detections)
         
@@ -83,9 +84,11 @@ class Tracker:
         print('tracks-1 \n',[self.tracks[track_idx].track_id for track_idx in unmatched_tracks])
         print('detections-1 \n',unmatched_detections)
         '''
-        
+        # stores track id
         m = {self.tracks[track_idx].track_id : det_id for track_idx, det_id in matches}
         
+        self.trackid_indexid = {}
+        self.indexid_trackid = {}
         
         # initialize iosb and create indexid_trackid_dictionary
         for i in range(len(self.tracks)):
@@ -95,8 +98,6 @@ class Tracker:
             
             if i in m.keys():
                 self.tracks[i].iosb[2] = True
-        
-        
         
         # calculate and update iosb
         for i in range(1,len(self.tracks)):
@@ -128,12 +129,32 @@ class Tracker:
                             box_j = tj.to_tlwh()
                             fts = encoder(frame,[box_i,box_j])
                             cost_matrix = self.metric.distance(fts, np.array([ti_id,tj_id]))
+                            for tr in [ti,tj]:
+                                gating_distance = kf.gating_distance(tr.mean, tr.covariance,[ti.to_xyah(),tj.to_xyah()], only_position=False)
+                                cost_matrix[row, gating_distance > gating_threshold] = gated_cost
+                            
+                            i_det = np.argmin(cost_matrix[0,:])
+                            j_det = np.argmin(cost_matrix[1,:])
+                            
+                            def switch(ti,tj):
+                                ti_copy　=　deepcopy(ti)
+                                ti.copy_track(tj)
+                                tj.copy_track(ti)
+                                return ti,tj
+                            
+                            if i_det == 1 and j_det == 0:
+                                ti,tj = switch(ti,tj)
+                            
+                            elif i_det == j_det:
+                                col = i_det 
+                                row = np.argmin(cost_matrix[:,col])
+                                if row!=col:
+                                    ti,tj = switch(ti,tj)
                             
                         else:
                             self.critical_tracks[index] = [min(t1_id,t2_id),max(t1_id,t2_id),iosb]
                         
 
-                
         # Update track set.
         for track_idx, detection_idx in matches:
             #print('\n update track ',track_idx)
@@ -145,6 +166,7 @@ class Tracker:
         
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
+
         for detection_idx in unmatched_detections:
             self._initiate_track(detections[detection_idx], shape, fno)
         self.tracks = [t for t in self.tracks if not t.is_deleted()]
@@ -180,7 +202,7 @@ class Tracker:
             cost_matrix = linear_assignment.gate_cost_matrix(
                 self.kf, cost_matrix, tracks, dets, track_indices,
                 detection_indices)
-
+            
             return cost_matrix
 
         # Split track set into confirmed and unconfirmed tracks.
