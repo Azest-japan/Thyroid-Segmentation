@@ -101,39 +101,50 @@ def plot_a(a):
         
         
 
-def sinfit(y,doplot = False):
+def curvefit(y,doplot = False,method = None):
     #y = [i[0] for i in df[(df[1]==319) & (df[0]>700)][5]]
     if len(y)<=6:
         print('cant perform sine fit')
         return 
     
-    vy = np.array([y[i+1]-y[i] for i in range(len(y)-1)])
-    t = np.arange(vy.shape[0])
-    gmean = np.mean(vy)
-    gamp = (vy[np.argsort(vy)[-5]] - vy[np.argsort(vy)[5]])/2
-    gphase = 0
-    
-    merror = 512
-    p = []
-    for gfreq in np.arange(0,1.5,0.03):
-        optimize_func = lambda x: (x[0]*np.sin(x[1]*t+x[2]) + x[3] - vy)**2
-        est_amp, est_freq, est_phase, est_mean = leastsq(optimize_func, [gamp, gfreq, gphase, gmean])[0]
+    if method == 'sine':
+        vy = np.array([y[i+1]-y[i] for i in range(len(y)-1)])
+        t = np.arange(vy.shape[0])
+        gmean = np.mean(vy)
+        gamp = (vy[np.argsort(vy)[-5]] - vy[np.argsort(vy)[5]])/2
+        gphase = 0
 
-        vp = est_amp*np.sin(est_freq*t+est_phase) + est_mean
-        er = np.sum(np.square(vp-vy))
-        if er < merror:
-            merror = er
-            p = (est_amp, est_freq, est_phase, est_mean)
+        merror = 512
+        p = []
+        for gfreq in np.arange(0,1.5,0.03):
+            optimize_func = lambda x: (x[0]*np.sin(x[1]*t+x[2]) + x[3] - vy)**2
+            est_amp, est_freq, est_phase, est_mean = leastsq(optimize_func, [gamp, gfreq, gphase, gmean])[0]
+
+            vp = est_amp*np.sin(est_freq*t+est_phase) + est_mean
+            er = np.sum(np.square(vp-vy))
+            if er < merror:
+                merror = er
+                p = (est_amp, est_freq, est_phase, est_mean)
+
+        vp = p[0]*np.sin(p[1]*t+p[2]) + p[3]
+
+        if doplot == True:
+            plt.plot(t,vy)
+            plt.plot(t,vp)
+
+        t = len(y)-1
+        return p[0]*np.sin(p[1]*t+p[2]) + p[3]
     
-    vp = p[0]*np.sin(p[1]*t+p[2]) + p[3]
-    
-    if doplot == True:
-        plt.plot(t,vy)
-        plt.plot(t,vp)
+    elif method == 'acc':
+        ay = np.array([y[i+2]+y[i]-2*y[i+1] for i in range(len(y)-2)])
+        t = np.arange(ay.shape[0]).reshape(-1,1)
+        reg = LinearRegression()
+        reg.fit(t,ay.reshape(-1,1))
         
-    t = len(y)-1
-    return p[0]*np.sin(p[1]*t+p[2]) + p[3]
-
+        return reg.predict(np.array([len(ay)]).reshape(-1,1))[0]
+    
+    return np.array([y[i+1]-y[i] for i in range(len(y)-1)]).mean()
+        
 
 def angle(pos):
     
