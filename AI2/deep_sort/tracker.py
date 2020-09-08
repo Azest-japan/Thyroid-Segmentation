@@ -5,13 +5,12 @@ from . import kalman_filter
 from . import linear_assignment
 from . import iou_matching
 from .track import Track
-from analysis import *
+from analysis import bb_iosb
 from copy import deepcopy
 
 class Tracker:
     """
     This is the multi-target tracker.
-
     Parameters
     ----------
     metric : nn_matching.NearestNeighborDistanceMetric
@@ -22,7 +21,6 @@ class Tracker:
         Number of consecutive detections before the track is confirmed. The
         track state is set to `Deleted` if a miss occurs within the first
         `n_init` frames.
-
     Attributes
     ----------
     metric : nn_matching.NearestNeighborDistanceMetric
@@ -35,7 +33,6 @@ class Tracker:
         A Kalman filter to filter target trajectories in image space.
     tracks : List[Track]
         The list of active tracks at the current time step.
-
     """
 
     def __init__(self, metric, max_iou_distance=0.7, max_age=30, n_init=3):
@@ -53,7 +50,6 @@ class Tracker:
 
     def predict(self):
         """Propagate track state distributions one time step forward.
-
         This function should be called once every time step, before `update`.
         """
         for track in self.tracks:
@@ -65,12 +61,10 @@ class Tracker:
 
     def update(self, detections, frame, fno, encoder):
         """Perform measurement update and track management.
-
         Parameters
         ----------
         detections : List[deep_sort.detection.Detection]
             A list of detections at the current time step.
-
         """ 
         
         shape = frame.shape[:2]  # used for track location during initialization - middle, edge
@@ -96,20 +90,20 @@ class Tracker:
             self.trackid_indexid[self.tracks[i].track_id] = i
             self.indexid_trackid[i] = self.tracks[i].track_id
             
-            if i in m.keys():
+            if self.tracks[i].track_id in m.keys():
                 self.tracks[i].iosb[2] = True
         
         # calculate and update iosb
         for i in range(1,len(self.tracks)):
             boxA = self.tracks[i].to_tlbr()
             ti_id = self.tracks[i].track_id
-            ti = self.tracks[self.trackid_indexid[ti_id]]
+            ti = self.tracks[i]
             
             for j in range(i):
                 boxB = self.tracks[j].to_tlbr()
                 iosb = bb_iosb(boxA, boxB)
                 tj_id = self.tracks[j].track_id
-                tj = self.tracks[self.trackid_indexid[tj_id]]
+                tj = self.tracks[j]
                 
                 if self.tracks[i].iosb[0] < iosb:
                     self.tracks[i].iosb[:2] = [iosb,tj_id]
@@ -120,6 +114,7 @@ class Tracker:
                 # iosb>0.5 and the tuple is not present in the critical_tracks and the number of detection boxes is not 2
                 if iosb>0.5 and (not np.sort((ti_id,tj_id)) in np.array(self.critical_tracks)[:,:2]) and np.sum([ti.iosb[2],tj.iosb[2]])<2:
                     self.critical_tracks.append(list(np.sort((ti_id,tj_id)))+[iosb])
+                    continue
                 
                 for index,items in enumerate(self.critical_tracks):
                     t1_id,t2_id,_ = items
@@ -129,17 +124,19 @@ class Tracker:
                             box_j = tj.to_tlwh()
                             fts = encoder(frame,[box_i,box_j])
                             cost_matrix = self.metric.distance(fts, np.array([ti_id,tj_id]))
-                            for tr in [ti,tj]:
-                                gating_distance = kf.gating_distance(tr.mean, tr.covariance,[ti.to_xyah(),tj.to_xyah()], only_position=False)
+                            gating_threshold = 9.48 # 4 dimensions
+                            gated_cost = 1e+5
+                            for row, tr in enumerate([ti,tj]):
+                                gating_distance = self.kf.gating_distance(tr.mean, tr.covariance,[ti.to_xyah(),tj.to_xyah()], only_position=False)
                                 cost_matrix[row, gating_distance > gating_threshold] = gated_cost
                             
                             i_det = np.argmin(cost_matrix[0,:])
                             j_det = np.argmin(cost_matrix[1,:])
                             
                             def switch(ti,tj):
-                                ti_copy　=　deepcopy(ti)
+                                ti_copy = deepcopy(ti)
                                 ti.copy_track(tj)
-                                tj.copy_track(ti)
+                                tj.copy_track(ti_copy)
                                 return ti,tj
                             
                             if i_det == 1 and j_det == 0:
@@ -265,5 +262,4 @@ class Tracker:
                 return 'middle'
             else:
                 return 'edge'
-        
         
