@@ -5,8 +5,8 @@ from . import kalman_filter
 from . import linear_assignment
 from . import iou_matching
 from .track import Track
-from analysis import bb_iosb
-from copy import deepcopy
+from analysis import bb_iosb,eudist
+#from copy import deepcopy
 
 class Tracker:
     """
@@ -46,8 +46,10 @@ class Tracker:
         self.trackid_indexid = {}
         self.indexid_trackid = {}
         self._next_id = 0
-        self.critical_tracks = []
-
+        self.critical_tracks = {}
+        self.middle_check = {}
+        self.track_pos = []
+        
     def predict(self):
         """Propagate track state distributions one time step forward.
         This function should be called once every time step, before `update`.
@@ -66,9 +68,12 @@ class Tracker:
         detections : List[deep_sort.detection.Detection]
             A list of detections at the current time step.
         """ 
-        
+
         shape = frame.shape[:2]  # used for track location during initialization - middle, edge
         # Run matching cascade stores track index. 
+        total_pos_row,total_pos_col = ((np.array(shape)+99)/100).astype(int)
+        self.track_pos = [[] for _ in range(total_pos_row*total_pos_col)]
+        
         matches, unmatched_tracks, unmatched_detections = \
             self._match(detections)
         
@@ -78,7 +83,7 @@ class Tracker:
         print('tracks-1 \n',[self.tracks[track_idx].track_id for track_idx in unmatched_tracks])
         print('detections-1 \n',unmatched_detections)
         '''
-        # stores track id
+
         m = {self.tracks[track_idx].track_id : det_id for track_idx, det_id in matches}
         
         self.trackid_indexid = {}
@@ -86,80 +91,88 @@ class Tracker:
         
         # initialize iosb and create indexid_trackid_dictionary
         for i in range(len(self.tracks)):
-            self.tracks[i].iosb = [0,-1,False]
+            self.tracks[i].iosb = [0,-1]
             self.trackid_indexid[self.tracks[i].track_id] = i
             self.indexid_trackid[i] = self.tracks[i].track_id
             
-            if self.tracks[i].track_id in m.keys():
-                self.tracks[i].iosb[2] = True
-        
+            
+            
+                
         # calculate and update iosb
         for i in range(1,len(self.tracks)):
-            boxA = self.tracks[i].to_tlbr()
-            ti_id = self.tracks[i].track_id
             ti = self.tracks[i]
+            boxA = ti.to_tlbr()
+            ti_id = ti.track_id
             
             for j in range(i):
-                boxB = self.tracks[j].to_tlbr()
-                iosb = bb_iosb(boxA, boxB)
-                tj_id = self.tracks[j].track_id
                 tj = self.tracks[j]
+                boxB = tj.to_tlbr()
+                tj_id = tj.track_id
                 
-                if self.tracks[i].iosb[0] < iosb:
-                    self.tracks[i].iosb[:2] = [iosb,tj_id]
+                iosb_val = bb_iosb(boxA, boxB)
+                
+                if ti.iosb[0] < iosb_val:
+                    ti.iosb = [iosb_val,tj_id]
                     
-                if self.tracks[j].iosb[0] < iosb:
-                    self.tracks[j].iosb[:2] = [iosb,ti_id]
+                if tj.iosb[0] < iosb_val:
+                    tj.iosb = [iosb_val,ti_id]
                 
+                #if iosb_val>0.2:
+                    #print('ct2',min(ti_id,tj_id),max(ti_id,tj_id),iosb_val,self.tracks[i].is_confirmed(),self.tracks[j].is_confirmed(),np.sum([ti.time_since_update,tj.time_since_update]),self.critical_tracks)
+                    
                 # iosb>0.5 and the tuple is not present in the critical_tracks and the number of detection boxes is not 2
-                if iosb>0.5 and (not np.sort((ti_id,tj_id)) in np.array(self.critical_tracks)[:,:2]) and np.sum([ti.iosb[2],tj.iosb[2]])<2:
-                    self.critical_tracks.append(list(np.sort((ti_id,tj_id)))+[iosb])
-                    continue
-                
-                for index,items in enumerate(self.critical_tracks):
-                    t1_id,t2_id,_ = items
-                    if [min(t1_id,t2_id),max(t1_id,t2_id)] == [min(ti_id,tj_id),max(ti_id,tj_id)]:
-                        if iosb<0.2:
-                            box_i = ti.to_tlwh()
-                            box_j = tj.to_tlwh()
-                            fts = encoder(frame,[box_i,box_j])
-                            cost_matrix = self.metric.distance(fts, np.array([ti_id,tj_id]))
-                            gating_threshold = 9.48 # 4 dimensions
-                            gated_cost = 1e+5
-                            for row, tr in enumerate([ti,tj]):
-                                gating_distance = self.kf.gating_distance(tr.mean, tr.covariance,[ti.to_xyah(),tj.to_xyah()], only_position=False)
-                                cost_matrix[row, gating_distance > gating_threshold] = gated_cost
-                            
-                            i_det = np.argmin(cost_matrix[0,:])
-                            j_det = np.argmin(cost_matrix[1,:])
-                            
-                            def switch(ti,tj):
-                                ti_copy = deepcopy(ti)
-                                ti.copy_track(tj)
-                                tj.copy_track(ti_copy)
-                                return ti,tj
-                            
-                            if i_det == 1 and j_det == 0:
-                                ti,tj = switch(ti,tj)
-                            
-                            elif i_det == j_det:
-                                col = i_det 
-                                row = np.argmin(cost_matrix[:,col])
-                                if row!=col:
-                                    ti,tj = switch(ti,tj)
-                            
-                        else:
-                            self.critical_tracks[index] = [min(t1_id,t2_id),max(t1_id,t2_id),iosb]
-                        
+                if iosb_val>0.41 and self.tracks[i].is_confirmed() and self.tracks[j].is_confirmed() and (not min(ti_id,tj_id) in self.critical_tracks.keys()) and np.sum([ti.time_since_update,tj.time_since_update])>2:
+                    self.critical_tracks[min(ti_id,tj_id)] = [max(ti_id,tj_id),iosb_val]
 
+                elif min(ti_id,tj_id) in self.critical_tracks.keys() and self.critical_tracks[min(ti_id,tj_id)][0]==max(ti_id,tj_id):
+                    if ti_id not in self.trackid_indexid.keys() or tj_id not in self.trackid_indexid.keys():
+                        self.critical_tracks.pop(min(ti_id,tj_id))
+                    
+                    elif iosb_val<0.22:
+                        #print('finally')
+                        
+                        box_i = ti.to_tlwh()
+                        box_j = tj.to_tlwh()
+                        fts = encoder(frame,[box_i,box_j])
+                        cost_matrix = self.metric.distance(fts, np.array([ti_id,tj_id]))
+                        gating_threshold = 9.48 # 4 dimensions
+                        gated_cost = 1e+5
+                        for row, tr in enumerate([ti,tj]):
+                            gating_distance = self.kf.gating_distance(tr.mean, tr.covariance,[ti.to_xyah(),tj.to_xyah()], only_position=False)
+                            cost_matrix[row, gating_distance > gating_threshold] = gated_cost
+                        #print('cost',cost_matrix)
+                        
+                        i_det = np.argmin(cost_matrix[0,:])
+                        j_det = np.argmin(cost_matrix[1,:])
+                        
+                        def switch(ti,tj):
+                            ti.track_id = tj_id
+                            tj.track_id = ti_id
+
+                        if i_det == 1 and j_det == 0:
+                            switch(ti,tj)
+                        
+                        elif i_det == j_det:
+                            col = i_det 
+                            row = np.argmin(cost_matrix[:,col])
+                            if row!=col:
+                                switch(ti,tj)
+                                
+                        self.critical_tracks.pop(min(ti_id,tj_id))
+                    else:
+                        self.critical_tracks[min(ti_id,tj_id)] = [max(ti_id,tj_id),iosb_val]
+                        
+        m = {self.tracks[track_idx].track_id : det_id for track_idx, det_id in matches}
+        print('critical tracks',self.critical_tracks)
+        print('m',m)
+        
+        
+        
         # Update track set.
         for track_idx, detection_idx in matches:
             #print('\n update track ',track_idx)
             self.tracks[track_idx].update(
                 self.kf, detections[detection_idx])
-            
-        
-        #print('m ',m)
         
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
@@ -167,7 +180,83 @@ class Tracker:
         for detection_idx in unmatched_detections:
             self._initiate_track(detections[detection_idx], shape, fno)
         self.tracks = [t for t in self.tracks if not t.is_deleted()]
+        
+        
+        
+        
+        self.trackid_indexid = {}
+        self.indexid_trackid = {}
+        
+        for i in range(len(self.tracks)):
+            self.trackid_indexid[self.tracks[i].track_id] = i
+            self.indexid_trackid[i] = self.tracks[i].track_id
+        
+        # update track pos
+        for tr in self.tracks:
+            if tr.time_since_update>1:
+                # update track_pos for middle_check
+                trbox = np.array(tr.to_xyah()[:2])
+                trpos = np.floor(trbox/100).astype(int)
+                
+                self.track_pos[trpos[1]*total_pos_col+trpos[0]].append(tr.track_id)
+        
+        print('track pos',self.track_pos)
+        print('middle check',self.middle_check)
+        
+        # middle check
+        for ntrid in list(self.middle_check):
+            time = self.middle_check[ntrid]
+            if time>8 or not ntrid in self.trackid_indexid.keys():
+                self.middle_check.pop(ntrid)
+                continue
+            
+            ntr = self.tracks[self.trackid_indexid[ntrid]]
+            nbox = np.array(ntr.to_xyah()[:2])
+            npos = ((nbox+99)/100).astype(int)
+            nft = ntr.features
 
+            if len(nft)==0:
+                nft = encoder(frame,[ntr.to_tlwh()])
+
+            dmax = 448
+            saveotrid = -1
+            for i in range(max(npos[1]-1,0),min(npos[1]+1,total_pos_row)):
+                for j in range(max(npos[0]-1,0),min(npos[0]+1,total_pos_col)):
+                    
+                    if len(self.track_pos[i*total_pos_col+j])==0:
+                        continue
+  
+                    for otrid in self.track_pos[i*total_pos_col+j]:
+                        print(ntrid,otrid)
+                        if otrid == ntr.track_id:
+                            continue
+                        otr = self.tracks[self.trackid_indexid[otrid]]
+                        obox = np.array(otr.to_xyah()[:2])
+                        d = eudist(obox,nbox)
+                        oft = otr.features
+                        
+                        if len(oft)==0:
+                            oft = encoder(frame,[otr.to_tlwh()])
+                  
+                        cosd = self.metric._metric(np.array(nft),np.array(oft))
+                        print('cosd ',cosd,otrid,ntr.track_id)
+                        if cosd<0.08:
+                            if d<dmax:
+                                dmax = d
+                                ntr.track_id = otr.track_id
+                                ntr.checkspot = 'edge'
+                                saveotrid = otrid
+            
+            
+            if saveotrid>-1:
+                del(self.tracks[self.trackid_indexid[otrid]])
+                del(otr)
+                self.middle_check.pop(ntrid)
+            else:
+                self.middle_check[ntrid] = time+1
+        
+        
+        
         # Update distance metric.
         active_targets = [t.track_id for t in self.tracks if t.is_confirmed()]
         #print('at ',active_targets,'\n')
@@ -185,6 +274,11 @@ class Tracker:
             np.asarray(features), np.asarray(targets), active_targets)
             
         return m
+
+
+
+
+
 
     def _match(self, detections):
 
@@ -233,28 +327,26 @@ class Tracker:
             linear_assignment.min_cost_matching(
                 iou_matching.iou_cost, self.max_iou_distance, self.tracks,
                 detections, iou_track_candidates, unmatched_detections)
-        '''
-        print('\nmatch b')
-        print('matches_b\n',[(self.tracks[track_idx].track_id,det_id) for track_idx,det_id in matches_b])
-        print('tracks-1_b\n',[self.tracks[track_idx].track_id for track_idx in unmatched_tracks_b])
-        print('det-1\n',unmatched_detections)
-        '''
+    
         matches = matches_a + matches_b
         unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
         return matches, unmatched_tracks, unmatched_detections
 
     def _initiate_track(self, detection, shape, fno):
         mean, covariance = self.kf.initiate(detection.to_xyah())
-
-        self.tracks.append(Track(
-            mean, covariance, self._next_id, self.n_init, self.max_age, self.check_spot(detection.to_xyah(),shape,fno),
-            detection.feature))
+        tr = Track(mean, covariance, self._next_id, self.n_init, self.max_age, self.check_spot(detection.to_xyah(),shape,fno),
+            detection.feature)
+        self.tracks.append(tr)
         
+        if tr.checkspot == 'middle':
+            self.middle_check[tr.track_id] = 0
+            
         self._next_id += 1
     
     def check_spot(self,box,shape,fno):
-        if fno<3:
-            return 'middle'
+        if fno<5:
+            return 'edge'
+        
         else:
             x,y,a,h = box
             h_img,w_img = shape
