@@ -70,8 +70,8 @@ class Track:
         self.time_since_update = 0
         
         self.pastpos = []
-        self.dh = []
-        self.dhd = 20
+        self.dh = []     #
+        self.dhd = 20    # 
         self.iosb = (0,-1)  # iosb, track number
         self.check_det = 0
         self.theta = 0
@@ -175,21 +175,31 @@ class Track:
             The Kalman filter.
         """
         dhd = 15
-        if len(self.dh) >= 2:
-            dhd = abs(self.dh[0] - self.dh[1])
+        if len(self.dh) > 0:
+            dhd = abs(self.mean[3] - self.dh[-1]) + 1
 
         self.mean, self.covariance = kf.predict(self.mean, self.covariance, self.pastpos, dhd + self.time_since_update*2)
-     
-        if len(self.dh)>=1:
+        
+        if len(self.dh) > 0:
             x,y,a,h = self.mean[:4]
-            w = a*h
-            xl = x - w/2
-            yl = y - h/2
             
             if h>1.1*self.dh[-1]:
                 h = self.dh[-1]*1.1
             elif self.dh[-1]>1.1*h:
                 h = self.dh[-1]/1.1
+            
+            w = a*h
+            xl = x - w/2
+            yl = y - h/2
+            
+            if self.time_since_update>0 and len(self.pastpos)>0:
+                for i in self.pastpos:
+                    if len(i)>0:
+                        if h > 1.15*i[3]:
+                            h = 1.15*i[3]
+                        elif i[3] > 1.15*h:
+                            h = i[3]/1.15
+                        break
                 
             x = xl + a*h/2
             y = yl + h/2
@@ -215,7 +225,6 @@ class Track:
         deth = h
         
         
-        
         if len(self.dh)>0:
             if deth>1.15*self.dh[-1]:
                 deth = 1.15*self.dh[-1]
@@ -224,7 +233,7 @@ class Track:
                 deth = self.dh[-1]/1.15
                 
         if len(self.dh)>=1:
-            self.dhd = abs(self.dh[-1] - deth)
+            self.dhd = abs(self.dh[-1] - deth) + 1
         
         if (self.iosb[0] < 0.1 and self.state == TrackState.Confirmed) or self.state == TrackState.Tentative:
             self.features.append(detection.feature)
