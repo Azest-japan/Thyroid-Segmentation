@@ -166,7 +166,7 @@ class Track:
                 self.theta = 360 + self.theta
             
 
-    def predict(self, kf):
+    def predict(self, kf,checkspot):
         """Propagate the state distribution to the current time step using a
         Kalman filter prediction step.
         Parameters
@@ -192,7 +192,7 @@ class Track:
             xl = x - w/2
             yl = y - h/2
             
-            if self.time_since_update>0 and len(self.pastpos)>0:
+            if self.time_since_update>0 and len(self.pastpos)>0 and checkspot=='middle':
                 for i in self.pastpos:
                     if len(i)>0:
                         if h > 1.15*i[3]:
@@ -208,7 +208,9 @@ class Track:
         
         self.age += 1
         self.time_since_update += 1
-
+    
+  
+            
     def update(self, kf, detection):
         """Perform Kalman filter measurement update step and update the feature
         cache.
