@@ -35,7 +35,7 @@ class Tracker:
         The list of active tracks at the current time step.
     """
 
-    def __init__(self, metric, max_iou_distance=0.7, max_age=30, n_init=3):
+    def __init__(self, metric, max_iou_distance=0.7, max_age=9, n_init=3):
         self.metric = metric
         self.max_iou_distance = max_iou_distance
         self.max_age = max_age
@@ -49,8 +49,10 @@ class Tracker:
         self.critical_tracks = {}
         self.middle_check = {}
         self.track_pos = []
+        self.switchcount = 0
+        self.swapcount = 0
         
-    def predict(self):
+    def predict(self,shape):
         """Propagate track state distributions one time step forward.
         This function should be called once every time step, before `update`.
         """
@@ -59,7 +61,7 @@ class Tracker:
                 track.print_details()
                 
             #print('\npredict track ',track.track_id)
-            track.predict(self.kf)
+            track.predict(self.kf,self.check_spot(track.to_xyah(),shape,8))
 
     def update(self, detections, frame, fno, encoder):
         """Perform measurement update and track management.
@@ -95,7 +97,7 @@ class Tracker:
             self.tracks[i].iosb = [0,-1]
             self.trackid_indexid[self.tracks[i].track_id] = i
             self.indexid_trackid[i] = self.tracks[i].track_id
- 
+        
             
                 
         # calculate and update iosb
@@ -152,20 +154,24 @@ class Tracker:
                             tj.track_id = ti_id
 
                         if i_det == 1 and j_det == 0:
+                            print('switched')
                             switch(ti,tj)
+                            self.switchcount += 1
                         
                         elif i_det == j_det:
                             col = i_det 
                             row = np.argmin(cost_matrix[:,col])
                             if row!=col:
                                 switch(ti,tj)
+                                print('switched')
+                                self.switchcount += 1
                     
                         self.critical_tracks.pop(min(ti_id,tj_id))
                     else:
                         self.critical_tracks[min(ti_id,tj_id)] = [max(ti_id,tj_id),iosb_val]
                         
         m = {self.tracks[track_idx].track_id : det_id for track_idx, det_id in matches}
-        print('critical tracks',self.critical_tracks)
+        #print('critical tracks',self.critical_tracks)
         
         
         
@@ -247,8 +253,10 @@ class Tracker:
                   
                         cosd = self.metric._metric(np.array(nft),np.array(oft))
                         print('cosd ',cosd,otrid,ntr.track_id)
-                        if cosd<0.08:
+                        if cosd<0.2:
                             if d<dmax:
+                                self.swapcount +=1
+                                print('grabbed!!!!!',self.swapcount)
                                 dmax = d
                                 saveotr = otr
                                 ntr.checkspot = 'edge'
@@ -256,12 +264,15 @@ class Tracker:
             
             if saveotr != None:
                 trs_todel.append(ntr)
-                otr.mean[:4] = ntr.mean[:4]
+                saveotr.mean[:4] = ntr.mean[:4]
+                saveotr.time_since_update = 0
                 if ntrid in m.keys():
-                    m[otr.track_id] = m[ntrid]
+                    
+                    m[saveotr.track_id] = m[ntrid]
                     m.pop(ntrid)
+                    print('check swap match',m[saveotr.track_id])
                 if len(ntr.pastpos)>0:
-                    otr.pastpos[-1] = ntr.pastpos[-1]
+                    saveotr.pastpos[-1] = ntr.pastpos[-1]
                     
                 self.middle_check.pop(ntrid)   # only way to delete items from middle check
                 
@@ -289,11 +300,9 @@ class Tracker:
         self.metric.partial_fit(
             np.asarray(features), np.asarray(targets), active_targets)
         
-        
-        print('matches ',m)
-        
-        return m
-
+        #print('matches ',m)
+        return m, [(tr.track_id,tr.time_since_update) for tr in self.tracks]
+    
 
 
 
@@ -326,29 +335,40 @@ class Tracker:
                 gated_metric, self.metric.matching_threshold, self.max_age,
                 self.tracks, detections, confirmed_tracks)
         
-        if fno>200:
-            '''
+        if fno==2000:
+            
             print('match a\n')
             print('matches_a\n',[(self.tracks[track_idx].track_id,det_id) for track_idx,det_id in matches_a])
             print('tracks-1_a\n',[self.tracks[track_idx].track_id for track_idx in unmatched_tracks_a])
             print('det-1\n',unmatched_detections)
             print('unconf \n',[self.tracks[track_idx].track_id for track_idx in unconfirmed_tracks])
-            '''
+        
         
         # Associate remaining tracks together with unconfirmed tracks using IOU.
         iou_track_candidates = unconfirmed_tracks + [
             k for k in unmatched_tracks_a if
-            self.tracks[k].time_since_update < 5]   
+            self.tracks[k].time_since_update < 4]
+        
+        #print('iou_track_candidates',iou_track_candidates,[(k,self.tracks[k].track_id,self.tracks[k].time_since_update) for k in unmatched_tracks_a])
         
         unmatched_tracks_a = [
             k for k in unmatched_tracks_a if
-            self.tracks[k].time_since_update >= 5]
+            self.tracks[k].time_since_update >= 4]
+        
         
         matches_b, unmatched_tracks_b, unmatched_detections = \
             linear_assignment.min_cost_matching(
                 iou_matching.iou_cost, self.max_iou_distance, self.tracks,
                 detections, iou_track_candidates, unmatched_detections)
-    
+            
+        if fno==2000:
+            
+            print('match b\n')
+            print('matches_b\n',[(self.tracks[track_idx].track_id,det_id) for track_idx,det_id in matches_b])
+            print('tracks-1_b\n',[self.tracks[track_idx].track_id for track_idx in unmatched_tracks_b])
+            print('det-2\n',unmatched_detections)
+        
+        
         matches = matches_a + matches_b
         unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
         return matches, unmatched_tracks, unmatched_detections
@@ -359,7 +379,7 @@ class Tracker:
             detection.feature)
         self.tracks.append(tr)
         
-        if fno>70:
+        if fno>300:
             print('initiate ',tr.track_id,tr.checkspot)
             
         if tr.checkspot == 'middle':
@@ -368,7 +388,7 @@ class Tracker:
         self._next_id += 1
     
     def check_spot(self,box,shape,fno):
-        if fno<5:
+        if fno<4:
             return 'edge'
         
         else:
