@@ -32,8 +32,6 @@ warnings.filterwarnings('ignore')
 
 pos = []
 trinf = []
-#switchcount = 0
-#swapcount = 0
 frame_index = -1
 
 def main(df,pos,base_path,fpath,opath=None,video=False,savepos=False):
@@ -86,7 +84,7 @@ def main(df,pos,base_path,fpath,opath=None,video=False,savepos=False):
             ret, frame = video_capture.read()  # frame shape 562*1000*3
             if ret != True:
                 break
-        
+     
         if ctrl2 % min(5,ctrl) != 0:
             ctrl2 += 1
             frame_index += 1
@@ -96,7 +94,6 @@ def main(df,pos,base_path,fpath,opath=None,video=False,savepos=False):
             ctrl+=1
         ctrl2=1
         
-      
         if '.jpg' in files[frame_index+1] or '.png' in files[frame_index+1]:
             frame = cv2.imread(fpath+files[frame_index+1])
             h,w = frame.shape[:2]
@@ -107,11 +104,10 @@ def main(df,pos,base_path,fpath,opath=None,video=False,savepos=False):
                 w = int(600*w/h+0.5)
                 h = 600
                 
-            #frame0 = cv2.imread('C:\\Users\\81807\\Documents\\RD\\motout\\'+str(frame_index)+'.jpg')
-            #h,w = frame0.shape[:2]
             frame = cv2.resize(frame,(w,h),interpolation = cv2.INTER_AREA)
             #print('--------\n')
             print(frame_index,files[frame_index+1])
+            
         else:
             frame_index+=1
             continue
@@ -121,7 +117,7 @@ def main(df,pos,base_path,fpath,opath=None,video=False,savepos=False):
         boxs = df[df['f']==frame_index][['x','y','w','h']].to_numpy()  # tlwh format
         features = encoder(frame,boxs)
         
-        # score to 1.0 here).
+        # score to 1.0 here.
         detections = [Detection(bbox, 1.0, feature) for bbox, feature in zip(boxs, features)]
         
         # Run non-maxima suppression.
@@ -136,14 +132,14 @@ def main(df,pos,base_path,fpath,opath=None,video=False,savepos=False):
         
         
         cv2.putText(frame, str(frame_index),(70, 70),cv2.FONT_HERSHEY_SIMPLEX,0.5, (80,120,240), 2)
-        print(tracker.switchcount,tracker.swapcount,'tid,\n')
-        trinf.append([frame_index]+[trinfo])
+        #print(tracker.switchcount,tracker.swapcount,'tid,\n')
+        #trinf.append([frame_index]+[trinfo])
         
         for track in tracker.tracks:
             color = (255,255,255)
             bbox = track.to_tlbr()
             if not track.is_confirmed() or track.time_since_update > 1:
-                color = (210,30,240)
+                color = (180,120,180)
                 #print(track.is_confirmed(),track.time_since_update,track.track_id)
             #else:
                 #print('confirmed     ',track.track_id)
@@ -157,24 +153,23 @@ def main(df,pos,base_path,fpath,opath=None,video=False,savepos=False):
                 else:
                     pos.append((frame_index,track.track_id,bbox))
                 '''
+                
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),color, 2)
-            cv2.putText(frame, str(track.track_id),(int(bbox[0]), int(bbox[1])),cv2.FONT_HERSHEY_SIMPLEX,0.75, (60,40,160), 2)
+            cv2.putText(frame, str(track.track_id),(int(bbox[0]), int(bbox[1])),cv2.FONT_HERSHEY_SIMPLEX,0.6, (60,250,250), 2)
             
         for det_no,det in enumerate(detections):
             bbox = det.to_tlbr()
             cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(255,0,0), 2)
-            cv2.putText(frame, str(det_no),(int(bbox[0]), int(bbox[1]+10)),cv2.FONT_HERSHEY_SIMPLEX,0.5, (60,250,250), 2)
+            #cv2.putText(frame, str(det_no),(int(bbox[0]), int(bbox[1]+10)),cv2.FONT_HERSHEY_SIMPLEX,0.5,(180,120,60), 2)
         
-        if savepos==True and (frame_index-2)%5 == 0:
+        if savepos==True and (frame_index%5 == 0 or frame_index == total-3):
             df2 = pd.DataFrame(pos)
-            df2.to_csv(base_path+'fdet.csv',header=None,index=False,mode='a')
+            df2.to_csv(base_path+'fulldet.csv',header=None,index=False,mode='a')
             pos = []
         
-        #frame = np.hstack((frame0,frame))
-        cv2.imwrite('C:\\Users\\81807\\Documents\\RD\\motout2\\'+str(frame_index)+'.jpg',frame)
+        #cv2.imwrite('C:\\Users\\81807\\Documents\\RD\\motout\\'+str(frame_index)+'.jpg',frame)
         frame_index = frame_index + 1
-        if frame_index>2048:
-            imgplot(frame)
+        #imgplot(frame)
         
         if writeVideo_flag:
             # save a frame
@@ -218,7 +213,7 @@ if __name__ == '__main__':
     frame_index = -1 
     
     df = pd.read_csv(base_path+'deep_sort\\det.csv',delimiter=',',names=['f','x','y','w','h']).drop([0],axis=0).astype(float)
-    main(df,pos,base_path,ipaths[0],opath,video=False,savepos=True)
+    main(df,pos,base_path,ipaths[0],opath,video=False,savepos=False)
     
 
 

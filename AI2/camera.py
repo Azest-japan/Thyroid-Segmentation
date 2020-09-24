@@ -159,6 +159,24 @@ def perror(ip,op,mtx,dist):
     return rv,tv,np.sqrt(np.sum(np.multiply([1,16/9],mse)))/(len(ip[0])*2**0.5)
 
 
+def corrpos(x,y,w,h):
+    cp = loadjson()
+    mtx,dist,rv,tv = cp['mtx'],cp['dist'],cp['rv'],cp['tv']
+    
+    (px,py),_ = td3d((x+w/2, y+h),mtx,dist,rv,tv)
+    px = px - 15  # account for the foot size (30/2)
+    
+    for z in range(150,200):
+        u1,v1 = cv2.projectPoints(np.float32([px,py,z]), rv, tv, mtx, dist)[0].reshape(-1)
+        if v1<y or u1<x:
+            print(u1,v1)
+            break
+    
+    p0 = cv2.projectPoints(np.float32([px,py-25,0]), rv, tv, mtx, dist)[0].reshape(-1)
+    p1 = cv2.projectPoints(np.float32([px,py+25,0]), rv, tv, mtx, dist)[0].reshape(-1)
+    p2 = cv2.projectPoints(np.float32([px,py+25,z]), rv, tv, mtx, dist)[0].reshape(-1)
+    p3 = cv2.projectPoints(np.float32([px,py-25,z]), rv, tv, mtx, dist)[0].reshape(-1)
+    return (p0,p1,p2,p3),(px,py,z)
 
 '''
 ret, mtx, dist, rvecs, tvecs, img = chess(125)
