@@ -75,6 +75,7 @@ ctrl = 1
 ctrl2 = 1
 frame_index = -1
 doplot = True
+
 # loop over frames from the video file stream
 while frame_index<560:
     

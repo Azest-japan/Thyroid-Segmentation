@@ -9,7 +9,7 @@ import os
 import sys
 from datetime import datetime
 import pandas as pd
-
+import pymongo
 if 'c:\\users\\81807\\documents\\RD\\deep_sort' not in sys.path:
     sys.path.append('c:\\users\\81807\\documents\\RD\\deep_sort')
 
@@ -44,11 +44,11 @@ def load(confidence = 0.5, threshold = 0.3):
     return path,net
 
 
-path,net = load()
-basepath = 'C:\\Users\\81807\\Documents\\RD\\'
+#path,net = load()
+#basepath = 'C:\\Users\\81807\\Documents\\RD\\'
 
 
-
+#image = cv2.imread('C:\\Users\\81807\\Documents\\RD\\sample.jpg')
 def givebox(path,net,image,frame_index,doplot = False,docv = False):
     
     
@@ -112,7 +112,6 @@ def givebox(path,net,image,frame_index,doplot = False,docv = False):
     idxs = cv2.dnn.NMSBoxes(boxes, confidences, path["confidence"],
         path["threshold"])
     
-    camera = False
     # ensure at least one detection exists
     if len(idxs) > 0:
         # loop over the indexes we are keeping
@@ -123,22 +122,9 @@ def givebox(path,net,image,frame_index,doplot = False,docv = False):
                 (w, h) = (boxes[i][2], boxes[i][3])
                 
                 pos.append([frame_index,x,y,w,h])
-                
-                color = (120,60,180)
-                if camera=='True':
-                    
-                    pts,(rx,ry,rz) = corrpos(x,y,w,h)
-                    print(rx,ry,rz)
-                    # draw a bounding box rectangle and label on the image
-                
-                    pts = np.int32(pts)
-                    for i in range(4):
-                        cv2.line(image,tuple(pts[i]),tuple(pts[(i+1)%4]),(255,0,0),2)    
-                    cv2.rectangle(image, (pts[0][0], y), (pts[0][0]+ w, pts[0][1]), color, 1)
-                    text = "{}: {}".format('(x,y,z)', str((np.round(rx),np.round(ry),np.round(rz))))
-                    cv2.putText(image, text, (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, color, 2)
-                elif doplot == True or docv == True:
+                        
+                if doplot == True or docv == True:
+                    color = (120,60,180)
                     cv2.rectangle(image, (x, y), (x+w, y+h), color, 1)
                     text = str(np.round(confidences[i],2))
                     cv2.putText(image, text, (int(x), int(y) - 5), cv2.FONT_HERSHEY_SIMPLEX,
@@ -155,36 +141,5 @@ def givebox(path,net,image,frame_index,doplot = False,docv = False):
     return pos
 
 
-def getrstp(link):
 
-    cap = cv2.VideoCapture("rtsp://admin:0000@192.168.99.3:554/trackID=1")
-    ctrl = 1
-    ctrl2 = 1
-    frame_index = -1 
-    
-    path,net = load()
-    basepath = 'C:\\Users\\81807\\Documents\\RD\\'
-    
-    while(cap.isOpened()):
-        ret, frame = cap.read()
-        
-        if ctrl2 % min(5,ctrl) != 0:
-            ctrl2 += 1
-            frame_index += 1
-            continue
-        
-        if frame_index%2==0 and ctrl<6:
-            ctrl+=1
-        ctrl2=1
-        
-        frame = reshapeimg(frame)
-        
-        frame_index += 1
-        cv2.imwrite(basepath+'realdata\\'+datetime.now().strftime('%m%d%H%M%S%f'),frame)
-        
-        if cv2.waitKey(20) & 0xFF == ord('q'):
-            break
-        
-    cap.release()
-    cv2.destroyAllWindows()
 
