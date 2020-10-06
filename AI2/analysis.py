@@ -1,14 +1,16 @@
 import numpy as np
-import argparse
+#import argparse
 #import imutils
 import cv2
 import matplotlib.pyplot as plt
 import pandas as pd
 import csv
 import json
-
+import pymongo
+from datetime import datetime
 from scipy.optimize import leastsq
 from sklearn.linear_model import LinearRegression
+
 #from sklearn.preprocessing import PolynomialFeatures
 
 def mouse(img):
@@ -61,6 +63,7 @@ def load_csv(file):
 def save_csv(file,df):
     df.to_csv(file,index=False)
     
+    
 def imgplot(img):
     img = img.copy()
     fig = plt.figure()
@@ -92,28 +95,6 @@ def dispcv(img,imgl=None):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-
-def gt(df,conf=0.3):
-    #df = pd.read_csv('/test/Downloads/MOT16/train/MOT16-04/gt/gt.txt',delimiter=',',names=['f','id','x','y','w','h','c1','c2','c3'])
-    color = (100,180,255)
-    for i in range(1,100):
-        f = df[df['f']==i]
-        f = f[f['c']>conf]
-        p = 0
-        n = i
-        while n>=1:
-            n = n/10
-            p+=1
-        sn = ''
-        for _ in range(6-p):
-            sn = sn + '0'
-        sn = sn+str(i)
-        img = cv2.imread('C:\\Users\\81807\\Documents\\RD\\MOT16\\train\\MOT16-04\\img1\\'+sn+'.jpg')
-        for j in range(f.shape[0]):
-            x,y,w,h = list(f.iloc[j].loc[['x','y','w','h']])
-            cv2.rectangle(img, (int(x), int(y)), (int(x+w), int(y+h)),color, 2)
-            #cv2.putText(img, str(int(f.iloc[j].loc['id'])),(int(x+w), int(y+h+10)),cv2.FONT_HERSHEY_SIMPLEX,0.5, (20,240,60), 2)
-        cv2.imwrite('C:\\Users\\81807\\Downloads\\motfcnn\\'+str(i)+'.jpg',img)
 
 # calculate iou of bbox
 def bb_iou(boxA, boxB):
@@ -157,27 +138,6 @@ def bb_iosb(boxA, boxB):
 
 	return iosb
 
-# a - array of bbox
-# bbox dimensions
-def plot_d(a,hw):
-    k = 1
-    if hw == 'h':
-        k = 2
-    plt.plot(a[:,0],a[:,k+2] - a[:,k])
-    for index,i in enumerate(a[:,0]):
-        plt.text(i,a[index,k+2] - a[index,k],str(i))
-
-# center
-def plot_c(a):
-    plt.plot((a[:,1]+a[:,3])/2,600-(a[:,2]+a[:,4])/2)
-    for index,i in enumerate(a[:,0]):
-        plt.text((a[index,1]+a[index,3])/2,600-(a[index,2]+a[index,4])/2,str(i))
-
-# aspect ratio
-def plot_a(a):
-    plt.plot(a[:,0],(a[:,4]-a[:,2])/(a[:,3]-a[:,1]))
-    for index,i in enumerate(a[:,0]):
-        plt.text(i,(a[index,4]-a[index,2])/(a[index,3]-a[index,1]),str(i))
         
         
 
@@ -248,12 +208,38 @@ def eudist(pos1,pos2):
 def reshapeimg(image):
     (H, W) = image.shape[:2]
     
-    if W/H > 10/6:
-        H = int(1000*H/W + 0.5)
-        W = 1000
-    else:
-        W = int(600*W/H + 0.5)
-        H = 600
-        
-    image = cv2.resize(image,(W,H),interpolation = cv2.INTER_AREA)
+    if W>600 or H>1000:
+        if W/H > 10/6:
+            H = int(1000*H/W + 0.5)
+            W = 1000
+        else:
+            W = int(600*W/H + 0.5)
+            H = 600
+            
+        image = cv2.resize(image,(W,H),interpolation = cv2.INTER_AREA)
     return image
+
+def showvid(link=None):
+    
+    if link==None:
+        cap = cv2.VideoCapture(0)
+    else:
+        cap = cv2.VideoCapture(link)
+    
+    try: 
+        while(True):
+            ret, frame = cap.read()
+            cv2.imshow('frame',frame)
+            if cv2.waitKey(20) & 0xFF == ord('q'):
+                cap.release()
+                cv2.destroyAllWindows()
+                break
+    
+    except KeyboardInterrupt:
+        cap.release()
+        cv2.destroyAllWindows()
+
+
+
+
+

@@ -4,12 +4,11 @@
 from __future__ import division, print_function, absolute_import
 
 import os
-from timeit import time
 import warnings
 import sys
 import cv2
 import numpy as np
-from PIL import Image
+#from PIL import Image
 import imutils
 
 import matplotlib.pyplot as plt
@@ -22,10 +21,14 @@ import tensorflow as tf
 from tensorflow import keras
 from deep_sort import preprocessing,nn_matching                                                                        
 from deep_sort.tracker import Tracker
+from deep_sort.track import Track
 from tools import generate_detections as gdet
 from deep_sort.detection import Detection 
 from analysis import *
-import gc
+from stream import dbconnect
+
+
+#import gc
 
 np.set_printoptions(suppress=True)
 warnings.filterwarnings('ignore')
@@ -33,164 +36,197 @@ warnings.filterwarnings('ignore')
 pos = []
 trinf = []
 frame_index = -1
+savetr = None
+savemt = None
 
-def main(df,pos,base_path,fpath,opath=None,video=False,savepos=False):
+def loadtr(jpath,tracker,metric):
+    
+    jsontr = read_json(jpath)
+    trs = []    
+    
+    for trid in jsontr['tracks'].keys():
+        #Track(mean, covariance, self._next_id, self.n_init, self.max_age, self.check_spot(detection.to_xyah(),shape,fno),
+        #    detection.feature)
+        tr = jsontr['tracks'][trid]
 
-   # Definition of the parameters
-    max_cosine_distance = 0.3
-    nn_budget = None
-    #nms_max_overlap = 1.0
-
-   # deep_sort 
-    model_filename = base_path + 'deep_sort\\model_data\\mars-small128.pb'
-    encoder = gdet.create_box_encoder(model_filename,batch_size=1)
-    
-    metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
-    tracker = Tracker(metric)
-    total = -1
-    writeVideo_flag = False
-    
-    if video == True:
-        fps = 0.0
-        video_capture = cv2.VideoCapture(fpath)
-        # try to determine the total number of frames in the video file
-        try:
-            prop = cv2.cv.CV_CAP_PROP_FRAME_COUNT if imutils.is_cv2() \
-                else cv2.CAP_PROP_FRAME_COUNT
-            total = int(video_capture.get(prop))
-            print("[INFO] {} total frames in video".format(total))
-        except:
-            print("[INFO] could not determine # of frames in video")
-            total = -1
-    
-    else:
-        files = np.sort(os.listdir(fpath))
-        total = len(files)
+        mean = np.array(tr['mean'],dtype=np.float)
+        cov = np.array(tr['cov'],dtype=np.float)
+        #tr['hits'] = int(tr['hits'])
+        #tr['age'] = int(tr['age'])
+        #tr['tsu'] = int(tr['tsu'])
+        pastpos = [np.array(i) for i in tr['pastpos']]
+        iosb = tuple(tr['iosb'])
+        #tr['n_init'] = int(tr['n_init'])
+        #tr['maxage'] = int(tr['maxage'])
+        metric.samples[int(trid)] = [np.array(tr['fts'])]
+        tr['fts'] = [np.array(tr['fts'])]
         
-    if writeVideo_flag:
-    # Define the codec and create VideoWriter object
-
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter(opath, fourcc, 5, (1000, 562))
-        list_file = open(base_path + 'detection.txt', 'w')
-    
-    ctrl = 1
-    ctrl2 = 1
-    frame_index = -1 
-    
-    while frame_index+1 < 1050:
+        track = Track(mean, cov, int(trid), tr['n_init'], tr['max_age'], tr['checkspot'],
+                 feature=tr['fts'])
+        track.reinit(tr['hits'],tr['age'],tr['tsu'],pastpos,tr['dh'],tr['dhd'],iosb,tr['state'])
         
-        if video:
-            ret, frame = video_capture.read()  # frame shape 562*1000*3
+        trs.append(track)
+    
+    middle_check = {}
+    for ntrid,time in jsontr['middle_check']:
+        middle_check[int(ntrid)] = time
+        
+    critical_tracks = {}
+    for ti_id,val in jsontr['critical_tracks']:
+        critical_tracks[int(ti_id)] = [int(val[0]),float(val[1])]
+    
+    tracker['tracks'] = trs
+    tracker['middle_check'] = middle_check
+    tracker['critical_tracks'] = critical_tracks
+    tracker['_next_id'] = int(jsontr['next_id'])
+    
+    return tracker,metric
+
+
+def freeze(tracker,metric,vname,loc_no):
+    jsontr = {}
+    trs = {}
+    for tr in tracker.tracks:    
+        fts = None
+        pastpos = [list(i) for i in savetr.tracks[0].pastpos]
+        if tr.track_id in metric.samples.keys():
+            fts = metric.samples[tr.track_id][0].tolist()
+            
+        trs[tr.track_id] = {'mean':tr.mean.tolist(),
+                            'cov':tr.covariance.tolist(),
+                            'hits':tr.hits,
+                            'age':tr.age,
+                            'tsu':tr.time_since_update,
+                            'pastpos':pastpos,
+                            'dh':tr.dh,
+                            'dhd':tr.dhd,
+                            'iosb':tr.iosb,
+                            'theta':tr.theta,
+                            'checkspot':tr.checkspot,
+                            'fts':fts,
+                            'state':tr.state,
+                            'n_init':tr._n_init,
+                            'maxage':tr._max_age}
+
+    jsontr['tracks'] = trs
+    jsontr['middle_check'] = tracker.middle_check
+    jsontr['critical_tracks'] = tracker.critical_tracks
+    jsontr['next_id'] = tracker._next_id
+    
+    write_json(basepath+'dsfreeze.json',jsontr)
+
+
+def dsort(basepath,sname,df,total,frame_index,pos,metric,tracker,encoder,vs=None,files=None):
+    
+    loc_index = 0
+    pindex = frame_index
+    while frame_index < total+pindex:
+        
+        if vs != None:
+            ret, frame = vs.read()  # frame shape 562*1000*3
             if ret != True:
-                break
-     
-        if ctrl2 % min(5,ctrl) != 0:
-            ctrl2 += 1
-            frame_index += 1
-            continue
-        
-        if frame_index%2==0 and ctrl<6:
-            ctrl+=1
-        ctrl2=1
-        
-        if '.jpg' in files[frame_index+1] or '.png' in files[frame_index+1]:
-            frame = cv2.imread(fpath+files[frame_index+1])
-            h,w = frame.shape[:2]
-            if w/h>10/6:
-                h = int(1000*h/w+0.5)
-                w = 1000
-            else:
-                w = int(600*w/h+0.5)
-                h = 600
-                
-            frame = cv2.resize(frame,(w,h),interpolation = cv2.INTER_AREA)
-            #print('--------\n')
-            print(frame_index,files[frame_index+1])
+                frame_index += 1
+                continue
+
+        elif '.jpg' in files[frame_index] or '.png' in files[frame_index]:
+            frame = cv2.imread(basepath+'images\\'+files[frame_index])
+            frame = reshapeimg(frame)
             
         else:
             frame_index+=1
             continue
         
-        t1 = time.time()   
         #image = Image.fromarray(frame[...,::-1]) #bgr to rgb
-        boxs = df[df['f']==frame_index][['x','y','w','h']].to_numpy()  # tlwh format
+        boxs = df[df['f']==loc_index][['x','y','w','h']].to_numpy()  # tlwh format
+        
         features = encoder(frame,boxs)
         
         # score to 1.0 here.
         detections = [Detection(bbox, 1.0, feature) for bbox, feature in zip(boxs, features)]
         
-        # Run non-maxima suppression.
-        #indices = preprocessing.non_max_suppression(boxes, nms_max_overlap, scores)
-        #detections = [detections[i] for i in indices]
-        
-        #print('Detections length',len(detections))
-        
-        # Call the tracker
+        # predict and update
         tracker.predict(frame.shape[:2])
-        m,trinfo = tracker.update(detections,frame,frame_index,encoder)
-        
-        
-        cv2.putText(frame, str(frame_index),(70, 70),cv2.FONT_HERSHEY_SIMPLEX,0.5, (80,120,240), 2)
-        #print(tracker.switchcount,tracker.swapcount,'tid,\n')
-        #trinf.append([frame_index]+[trinfo])
+        m = tracker.update(detections,frame,frame_index,encoder)
+        #trinfo = [(tr.track_id,tr.time_since_update) for tr in tracker.tracks]
         
         for track in tracker.tracks:
-            color = (255,255,255)
             bbox = track.to_tlbr()
-            if not track.is_confirmed() or track.time_since_update > 1:
-                color = (180,120,180)
-                #print(track.is_confirmed(),track.time_since_update,track.track_id)
-            #else:
-                #print('confirmed     ',track.track_id)
-                
-            if savepos ==True:
-                pos.append((frame_index,track.track_id,bbox[0],bbox[1],bbox[2],bbox[3]))
-                
-                '''
-                if track.is_confirmed() and track.time_since_update==0:
-                    pos.append((frame_index,track.track_id,bbox,m[track.track_id],detections[m[track.track_id]].to_tlbr()))
-                else:
-                    pos.append((frame_index,track.track_id,bbox))
-                '''
-                
-            cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),color, 2)
-            cv2.putText(frame, str(track.track_id),(int(bbox[0]), int(bbox[1])),cv2.FONT_HERSHEY_SIMPLEX,0.6, (60,250,250), 2)
-            
-        for det_no,det in enumerate(detections):
-            bbox = det.to_tlbr()
-            cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(255,0,0), 2)
-            #cv2.putText(frame, str(det_no),(int(bbox[0]), int(bbox[1]+10)),cv2.FONT_HERSHEY_SIMPLEX,0.5,(180,120,60), 2)
-        
-        if savepos==True and (frame_index%5 == 0 or frame_index == total-3):
+            pos.append((loc_index,track.track_id,bbox[0],bbox[1],bbox[2],bbox[3]))
+       
+        if loc_index%10 == 0 or loc_index == total-1:
             df2 = pd.DataFrame(pos)
-            df2.to_csv(base_path+'fulldet.csv',header=None,index=False,mode='a')
+            df2.to_csv(basepath+str(sname)+'+id.csv',header=None,index=False,mode='a')
             pos = []
-        
-        #cv2.imwrite('C:\\Users\\81807\\Documents\\RD\\motout\\'+str(frame_index)+'.jpg',frame)
-        frame_index = frame_index + 1
-        #imgplot(frame)
-        
-        if writeVideo_flag:
-            # save a frame
-            out.write(frame)
-            list_file.write(str(frame_index)+' ')
-            if len(boxs) != 0:
-                for i in range(0,len(boxs)):
-                    list_file.write(str(boxs[i][0]) + ' '+str(boxs[i][1]) + ' '+str(boxs[i][2]) + ' '+str(boxs[i][3]) + ' ')
-            list_file.write('\n')
+            #print(frame_index,len(tracker.tracks))
             
-    if video:
-        video_capture.release()
-        fps  = ( fps + (1./(time.time()-t1)) ) / 2
-        print("fps= %f"%(fps))
+        frame_index += 1 
+        loc_index += 1
         
-    if writeVideo_flag:
-        out.release()
-        list_file.close()
+    return frame_index,pos,tracker
 
 
-if __name__ == '__main__':
+
+def main_dsort(basepath,csvcol,jpath=None):
+    global savetr, savemt
+   # Definition of the parameters
+    max_cosine_distance = 0.3
+    nn_budget = None
+
+   # deep_sort 
+    model_filename = 'C:\\Users\\81807\\Documents\\RD\\deep_sort\\model_data\\mars-small128.pb'
+    encoder = gdet.create_box_encoder(model_filename,batch_size=1)
+    
+    metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
+    tracker = Tracker(metric)
+    total = -1
+    count = 0
+    frame_index = 0
+    waitc = 0
+    pos = []
+    
+    if jpath:
+        tracker,metric = loadtr(jpath,tracker,metric)
+
+    while count<csvcol.estimated_document_count():
+        count += 1
+        try:
+            df = pd.read_csv(basepath+str(count)+'.csv',delimiter=',',names=['f','x','y','w','h'])
+            vs = cv2.VideoCapture(basepath+str(count)+'.mp4')
+        
+        except FileNotFoundError:
+            continue
+        
+        # try to determine the total number of frames in the video file
+        try:
+            prop = cv2.cv.CV_CAP_PROP_FRAME_COUNT if imutils.is_cv2() \
+                else cv2.CAP_PROP_FRAME_COUNT
+            total = int(vs.get(prop))
+            print("[INFO] {} total frames in video".format(total))
+        except:
+            print("[INFO] could not determine # of frames in video")
+            total = -1
+        
+        frame_index,pos,tracker = dsort(basepath,count,df,total,frame_index,pos,metric,tracker,encoder,vs)
+        savetr = tracker
+        savemt = metric
+        print(len(tracker.tracks))
+        print('ok!')
+    print(csvcol.estimated_document_count())
+    if csvcol.estimated_document_count()==0:
+        files = np.sort(os.listdir(basepath+'images'))
+        total = len(files)
+        try:
+            df = pd.read_csv(basepath+'box.csv',delimiter=',',names=['f','x','y','w','h'])
+        except FileNotFoundError:
+            return
+        
+        frame_index,pos,tracker = dsort(basepath,0,df,total,frame_index,pos,metric,tracker,encoder,files=files)
+        
+    else:
+        vs.release()
+
+
+def process():
     tf.compat.v1.enable_eager_execution() 
     gpus = tf.config.experimental.list_physical_devices('GPU')
     if gpus:
@@ -204,17 +240,16 @@ if __name__ == '__main__':
             # Memory growth must be set before GPUs have been initialized
             print(e)
     pos = []
-    basepath = 'C:\\Users\\81807\\Documents\\RD\\'
-    base_path = 'C:\\Users\\81807\\Documents\\RD\\'
-    opath = base_path + 'output2.avi'
-    vpath = base_path + 'videos\\walk.mp4'
-    ipaths = [base_path + 'MOT16\\train\\MOT16-04\\img1\\',
-              base_path + 'test\\']
-    frame_index = -1 
+    basepath = 'C:\\Users\\81807\\Documents\\RD\\realdata\\'
     
-    df = pd.read_csv(base_path+'deep_sort\\det.csv',delimiter=',',names=['f','x','y','w','h']).drop([0],axis=0).astype(float)
-    main(df,pos,base_path,ipaths[0],opath,video=False,savepos=False)
-    
+    db = dbconnect(dbname='videos')
+    loccol = db['loc']
+    csvcol = db['csv']
+    print(db.collection_names())
+    print(csvcol.estimated_document_count(),loccol.estimated_document_count())
+    main_dsort(basepath,csvcol)
+
+
 
 
 
