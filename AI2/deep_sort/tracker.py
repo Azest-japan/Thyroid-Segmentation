@@ -35,7 +35,7 @@ class Tracker:
         The list of active tracks at the current time step.
     """
 
-    def __init__(self, metric, max_iou_distance=0.7, max_age=9, n_init=3):
+    def __init__(self, metric, max_iou_distance=0.7, max_age=32, n_init=3):
         self.metric = metric
         self.max_iou_distance = max_iou_distance
         self.max_age = max_age
@@ -87,7 +87,6 @@ class Tracker:
         '''
 
         m = {self.tracks[track_idx].track_id : det_id for track_idx, det_id in matches}
-        
             
         self.trackid_indexid = {}
         self.indexid_trackid = {}
@@ -119,9 +118,7 @@ class Tracker:
                 if tj.iosb[0] < iosb_val:
                     tj.iosb = [iosb_val,ti_id]
                 
-                #if iosb_val>0.2:
-                    #print('ct2',min(ti_id,tj_id),max(ti_id,tj_id),iosb_val,self.tracks[i].is_confirmed(),self.tracks[j].is_confirmed(),np.sum([ti.time_since_update,tj.time_since_update]),self.critical_tracks)
-                    
+                   
                 # iosb>0.5 and the tuple is not present in the critical_tracks and the number of detection boxes is not 2
                 if iosb_val>0.41 and self.tracks[i].is_confirmed() and self.tracks[j].is_confirmed() and (not min(ti_id,tj_id) in self.critical_tracks.keys()) and np.sum([ti.time_since_update,tj.time_since_update])>2:
                     self.critical_tracks[min(ti_id,tj_id)] = [max(ti_id,tj_id),iosb_val]
@@ -214,8 +211,8 @@ class Tracker:
         trs_todel = []
         # middle check
         for ntrid in list(self.middle_check):
+            
             time = self.middle_check[ntrid]
-
             if time>8 or not ntrid in self.trackid_indexid.keys():
                 self.middle_check.pop(ntrid)
                 continue
@@ -301,10 +298,8 @@ class Tracker:
             np.asarray(features), np.asarray(targets), active_targets)
         
         #print('matches ',m)
-        return m, [(tr.track_id,tr.time_since_update) for tr in self.tracks]
+        return m
     
-
-
 
 
 
@@ -335,14 +330,6 @@ class Tracker:
                 gated_metric, self.metric.matching_threshold, self.max_age,
                 self.tracks, detections, confirmed_tracks)
         
-        if fno==2000:
-            
-            print('match a\n')
-            print('matches_a\n',[(self.tracks[track_idx].track_id,det_id) for track_idx,det_id in matches_a])
-            print('tracks-1_a\n',[self.tracks[track_idx].track_id for track_idx in unmatched_tracks_a])
-            print('det-1\n',unmatched_detections)
-            print('unconf \n',[self.tracks[track_idx].track_id for track_idx in unconfirmed_tracks])
-        
         
         # Associate remaining tracks together with unconfirmed tracks using IOU.
         iou_track_candidates = unconfirmed_tracks + [
@@ -355,23 +342,15 @@ class Tracker:
             k for k in unmatched_tracks_a if
             self.tracks[k].time_since_update >= 4]
         
-        
         matches_b, unmatched_tracks_b, unmatched_detections = \
             linear_assignment.min_cost_matching(
                 iou_matching.iou_cost, self.max_iou_distance, self.tracks,
                 detections, iou_track_candidates, unmatched_detections)
             
-        if fno==2000:
-            
-            print('match b\n')
-            print('matches_b\n',[(self.tracks[track_idx].track_id,det_id) for track_idx,det_id in matches_b])
-            print('tracks-1_b\n',[self.tracks[track_idx].track_id for track_idx in unmatched_tracks_b])
-            print('det-2\n',unmatched_detections)
-        
-        
         matches = matches_a + matches_b
         unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
         return matches, unmatched_tracks, unmatched_detections
+
 
     def _initiate_track(self, detection, shape, fno):
         mean, covariance = self.kf.initiate(detection.to_xyah())
@@ -379,8 +358,8 @@ class Tracker:
             detection.feature)
         self.tracks.append(tr)
         
-        if fno>300:
-            print('initiate ',tr.track_id,tr.checkspot)
+        #if fno>300:
+        #    print('initiate ',tr.track_id,tr.checkspot)
             
         if tr.checkspot == 'middle':
             self.middle_check[tr.track_id] = 0

@@ -13,8 +13,6 @@ class TrackState:
     Tentative = 1
     Confirmed = 2
     Deleted = 3
-    
-
 
 class Track:
     """
@@ -65,6 +63,7 @@ class Track:
         self.mean = mean
         self.covariance = covariance
         self.track_id = track_id
+        
         self.hits = 1
         self.age = 1
         self.time_since_update = 0
@@ -73,11 +72,9 @@ class Track:
         self.dh = []     #
         self.dhd = 20    # 
         self.iosb = (0,-1)  # iosb, track number
-        self.check_det = 0
         self.theta = 0
-        self.check_switch = False
+
         self.checkspot = checkspot
-        
         self.state = TrackState.Tentative
         self.features = []
         if feature is not None:
@@ -86,7 +83,19 @@ class Track:
         self._n_init = n_init
         self._max_age = max_age
         
-
+    
+    def reinit(self,hits,age,tsu,pastpos,dh,dhd,iosb,state):
+        self.hits = hits
+        self.age = age
+        self.time_since_update = tsu
+        self.pastpos = pastpos
+        self.dh = dh     #
+        self.dhd = dhd    # 
+        self.iosb = iosb  # iosb, track number
+        self.state = state
+        
+        
+        
     def to_tlwh(self):
         """Get current position in bounding box format `(top left x, top left y,
         width, height)`.
@@ -138,9 +147,7 @@ class Track:
         self.dh = tr.dh
         self.dhd = tr.dhd
         
-        self.check_det = tr.check_det
         self.theta = tr.theta
-        self.check_switch = False
         self.checkspot = tr.checkspot
         
     
@@ -209,7 +216,6 @@ class Track:
         self.age += 1
         self.time_since_update += 1
     
-  
             
     def update(self, kf, detection):
         """Perform Kalman filter measurement update step and update the feature
@@ -240,7 +246,7 @@ class Track:
         if (self.iosb[0] < 0.1 and self.state == TrackState.Confirmed) or self.state == TrackState.Tentative:
             self.features.append(detection.feature)
             self.dh.append(deth)
-            
+        
         detection.set_det((xl,yl,w/h*deth,deth))
         self.mean, self.covariance = kf.update(
             self.mean, self.covariance, detection.to_xyah(),self.dhd)
@@ -249,8 +255,11 @@ class Track:
         self.time_since_update = 0
         self.pastpos.append(self.mean[:4])
         self.pastpos = self.pastpos[-8:]
-        self.caltheta()
+        #self.caltheta()
         
+        if len(self.dh)>8:
+            self.dh = self.dh[-8:]
+            
         if self.state == TrackState.Tentative and self.hits >= self._n_init:
             self.state = TrackState.Confirmed
 
@@ -293,5 +302,6 @@ class Track:
         print('dh ', self.dh)
         print('iosb ',self.iosb)
         print('theta ',self.theta)
-        print('check switch ', self.check_switch)
         print('checkspot ', self.checkspot)
+        
+        

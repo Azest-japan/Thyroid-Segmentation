@@ -1,4 +1,3 @@
-# vim: expandtab:ts=4:sw=4
 import numpy as np
 import scipy.linalg
 from analysis import curvefit
@@ -23,18 +22,13 @@ chi2inv95 = {
 class KalmanFilter(object):
     """
     A simple Kalman filter for tracking bounding boxes in image space.
-
     The 8-dimensional state space
-
         x, y, a, h, vx, vy, va, vh
-
     contains the bounding box center position (x, y), aspect ratio a, height h,
     and their respective velocities.
-
     Object motion follows a constant velocity model. The bounding box location
     (x, y, a, h) is taken as direct observation of the state space (linear
     observation model).
-
     """
 
     def __init__(self):
@@ -54,20 +48,17 @@ class KalmanFilter(object):
 
     def initiate(self, measurement, cv = 20):
         """Create track from unassociated measurement.
-
         Parameters
         ----------
         measurement : ndarray
             Bounding box coordinates (x, y, a, h) with center position (x, y),
             aspect ratio a, and height h.
-
         Returns
         -------
         (ndarray, ndarray)
             Returns the mean vector (8 dimensional) and covariance matrix (8x8
             dimensional) of the new track. Unobserved velocities are initialized
             to 0 mean.
-
         """
         mean_pos = measurement
         mean_vel = np.zeros_like(mean_pos)
@@ -87,7 +78,6 @@ class KalmanFilter(object):
 
     def predict(self, mean, covariance, pastpos, tcv):
         """Run Kalman filter prediction step.
-
         Parameters
         ----------
         mean : ndarray
@@ -106,7 +96,6 @@ class KalmanFilter(object):
         (ndarray, ndarray)
             Returns the mean vector and covariance matrix of the predicted
             state. Unobserved velocities are initialized to 0 mean.
-
         """
         
         std_pos = [
@@ -122,7 +111,7 @@ class KalmanFilter(object):
         
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
         
-        if len(pastpos)>6 and not [] in pastpos:
+        if len(pastpos)>3 and not [] in pastpos:
             pastpos = np.array(pastpos)
             for i in [0,1]:
                 mean[i+4] = curvefit(pastpos[:,i])
@@ -136,20 +125,17 @@ class KalmanFilter(object):
 
     def project(self, mean, covariance, dhd=20):
         """Project state distribution to measurement space.
-
         Parameters
         ----------
         mean : ndarray
             The state's mean vector (8 dimensional array).
         covariance : ndarray
             The state's covariance matrix (8x8 dimensional).
-
         Returns
         -------
         (ndarray, ndarray)
             Returns the projected mean and covariance matrix of the given state
             estimate.
-
         """
         std = [
             self._std_weight_position * dhd,
@@ -165,7 +151,6 @@ class KalmanFilter(object):
 
     def update(self, mean, covariance, measurement, dhd):
         """Run Kalman filter correction step.
-
         Parameters
         ----------
         mean : ndarray
@@ -176,12 +161,10 @@ class KalmanFilter(object):
             The 4 dimensional measurement vector (x, y, a, h), where (x, y)
             is the center position, a the aspect ratio, and h the height of the
             bounding box.
-
         Returns
         -------
         (ndarray, ndarray)
             Returns the measurement-corrected state distribution.
-
         """
         projected_mean, projected_cov = self.project(mean, covariance, dhd)
 
@@ -200,11 +183,9 @@ class KalmanFilter(object):
     def gating_distance(self, mean, covariance, measurements,
                         only_position=False):
         """Compute gating distance between state distribution and measurements.
-
         A suitable distance threshold can be obtained from `chi2inv95`. If
         `only_position` is False, the chi-square distribution has 4 degrees of
         freedom, otherwise 2.
-
         Parameters
         ----------
         mean : ndarray
@@ -218,14 +199,12 @@ class KalmanFilter(object):
         only_position : Optional[bool]
             If True, distance computation is done with respect to the bounding
             box center position only.
-
         Returns
         -------
         ndarray
             Returns an array of length N, where the i-th element contains the
             squared Mahalanobis distance between (mean, covariance) and
             `measurements[i]`.
-
         """
         mean, covariance = self.project(mean, covariance)
         if only_position:
