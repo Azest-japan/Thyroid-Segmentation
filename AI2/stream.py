@@ -12,6 +12,14 @@ import os
 import sys
 import pymongo
 import time
+import ftplib
+from ftplib import FTP
+import shutil
+import urllib.request as request
+from dateutil import parser
+from contextlib import closing
+import imutils
+
 if 'c:\\users\\81807\\documents\\RD\\yolo-frcnn' not in sys.path:
     sys.path.append('c:\\users\\81807\\documents\\RD\\yolo-frcnn')
     
@@ -36,8 +44,53 @@ def dbconnect(url = "mongodb://localhost:27017/?readPreference=primary&appname=M
         db = client[dbname]  
     return db
 
-
 basepath = 'C:\\Users\\81807\\Documents\\RD\\realdata\\'
+
+def ftpconnect(day='RecordFolder20201005',link='192.168.99.101',baseloc = '/ftp_share/VideoVolume1/'):
+    
+    fullp = baseloc+day+'/'
+    def savedb(link):
+        with closing(request.urlopen('ftp://admin:admin@'+link+fullp+'nvr.db')) as r:
+            with open('C:\\Users\\81807\\Documents\\RD\realdata\\a.db', 'wb') as f:
+                shutil.copyfileobj(r, f)
+    
+    vdb = dbconnect(dbname='videos')
+    loccol = vdb[day]
+    waitc = 0
+    
+    try:
+        ftp = FTP('192.168.99.101','admin','admin')
+        ftp.cwd(fullp)
+        vlist = ftp.nlst()
+        vtlist = [(i,parser.parse(ftp.voidcmd("MDTM "+fullp+i)[4:].strip())) for i in vlist if i[0] == '2']
+        vtlist.sort(key=lambda x:x[1])
+        tmax = vtlist[-1][1]
+        for vname, t in vtlist:
+            if loccol.find_one({'name':vname}) == None:
+                loccol.insert_one({'name':vname,'time':t,'status':0})
+            
+        while True:
+            
+            ftp = FTP('192.168.99.101','admin','admin')
+            ftp.cwd(fullp)
+            vlist = ftp.nlst()
+            vtlist = [(i,parser.parse(ftp.voidcmd("MDTM "+fullp+i)[4:].strip())) for i in vlist if i[0] == '2']
+            vtmax = max(vtlist,key=lambda x:x[1])
+            
+            if vtmax[1] > tmax:
+                tmax = vtmax[1]
+                loccol.insert_one({'name':vtmax[0],'time':vtmax[1]})
+            
+            elif waitc <2:
+                waitc += 1
+                print('waiting ',waitc)
+                time.sleep(3)
+            else:
+                break
+
+    except ftplib.all_errors:
+        return 
+
 
 # 1)
 def savevid(link="rtsp://admin:0000@192.168.99.3:554/trackID=1",basepath='C:\\Users\\81807\\Documents\\RD\\realdata\\',url = "mongodb://localhost:27017/?readPreference=primary&appname=MongoDB%20Compass&ssl=false"): 
@@ -77,37 +130,71 @@ def savevid(link="rtsp://admin:0000@192.168.99.3:554/trackID=1",basepath='C:\\Us
         out.release()
 
 # 2)
-def savebox(): 
-    db = dbconnect(dbname='videos')
-    loccol = db['loc']
-    csvcol = db['csv']
-    
-    count = 0
-    waitc = 0
-    
+def savebox(day='RecordFolder20201005',link='192.168.99.101',baseloc='/ftp_share/VideoVolume1/'): 
     path,net = load()
-    time.sleep(9)
+    basepath = 'C:\\Users\\81807\\Documents\\RD\\realdata\\'
+    fullp = baseloc+day+'/'
+    boxdb = dbconnect(dbname='boxcsv')
+    boxcol = boxdb[day]
+    
+    vdb = dbconnect(dbname='videos')
+    loccol = vdb[day]
+    
+    if day not in [i for i in os.listdir(basepath) if os.path.isdir(basepath+i)]:
+        os.mkdir(basepath+day)
+    
+    waitc = 0
+    frame_index = 0
+    start = 0
+    
+    boxlist = [i for i in boxcol.find({'status':1})]
+    if len(boxlist)!=0:
+        boxmax = max(boxlist,key=lambda x:x['date'])
+        start = boxmax['start']
     
     try:
         while True:
-            if loccol.estimated_document_count() > count:
-                count += 1 
-                vs = cv2.VideoCapture(basepath+str(count)+'.mp4')
+            vinfo = loccol.find_one({'status':0})
+            if vinfo != None:
+                vs = cv2.VideoCapture('ftp://admin:admin@'+link+fullp+vinfo['name'])
                 df = pd.DataFrame()
                 frame_index = 0
-                while(True):
+                
+                try:
+                    prop = cv2.cv.CV_CAP_PROP_FRAME_COUNT if imutils.is_cv2() \
+                        else cv2.CAP_PROP_FRAME_COUNT
+                    total = int(vs.get(prop))
+                    print("[INFO] {} total frames in video".format(total),vinfo['name'])
+                except:
+                    print("[INFO] could not determine # of frames in video")
+                    total = -1
+                    
+                while frame_index+start < total:
+                    
                     grabbed,frame = vs.read()
+                    frame = reshapeimg(frame)
+                    
+                    if (frame_index+start)%5 != 0:
+                        frame_index += 1
+                        continue
+                    
                     if grabbed != True:
                         break
+                    
                     df = df.append(pd.DataFrame(givebox(path,net,frame,frame_index,doplot = False,docv = False)),ignore_index=True)
                         
                     frame_index += 1
-                df.to_csv(basepath+str(count)+'.csv',header=None,index=False)
-                csvcol.insert_one({'name':str(count)+'.csv','date':str(datetime.now())})
-            
+                    
+                start = (frame_index+start)%5
+                
+                df.to_csv('C:\\Users\\81807\\Documents\\RD\\realdata\\'+day+'\\'+vinfo['name'][:-4]+'.csv',header=None,index=False)
+                boxcol.insert_one({'name':vinfo['name'][:-4]+'.csv','date':str(datetime.now()),'status':0,'start':start})
+                loccol.update_one({'_id':vinfo['_id']},{'$set' :{'status':1}})
+                
             elif waitc==0:
                 waitc += 1
-                time.sleep(10)
+                print('waiting ',waitc)
+                time.sleep(3)
                 
             else:
                 break
@@ -115,23 +202,38 @@ def savebox():
     except KeyboardInterrupt:
         pass
 
+
+
 # 3)
-def outvid():
+def outvid(basepath='C:\\Users\\81807\\Documents\\RD\\realdata\\',link='192.168.99.101',day='RecordFolder20201005',size=(1000,600)):
     count = 0
     waitc = 0
-    db = dbconnect(dbname='videos')
-    csvcol = db['csv']
+    deepdb = dbconnect(dbname='deepcsv')
+    deepcol = deepdb[day]
+    
+    deeplist = [i for i in deepcol.find()]
+    
+    
     fourcc = cv2.VideoWriter_fourcc('M','P','4','V')
-    out = cv2.VideoWriter(basepath+'out+id.mp4',  fourcc, 30, (1000,600))
+    out = cv2.VideoWriter(basepath+day+'\\'+'out+id.mp4',  fourcc, 30, size)
     #time.sleep(100)
+    index = 0
+    folderp = basepath + day + '\\'
+    baseloc = '/ftp_share/VideoVolume1/'
+    fullp = baseloc + day + '/'
+    frame_index = 0
     try:
         while True:
-            if csvcol.estimated_document_count()>count:
-                count += 1
+            deeplist = [i for i in deepcol.find()]
+            if len(deeplist)>index:
+                print(index,deeplist[index]['name'])
                 try:
-                    df = pd.read_csv(basepath+str(count)+'+id.csv',delimiter=',',names=['f','id','x','y','w','h'])
-                    vs = cv2.VideoCapture(basepath+str(count)+'.mp4')
+                    df = pd.read_csv(folderp+deeplist[index]['name'],delimiter=',',names=['f','id','x','y','w','h'])
+                    vs = cv2.VideoCapture('ftp://admin:admin@'+link+fullp+deeplist[index]['name'][:-7]+'.avi')
+                    
                 except FileNotFoundError:
+                    waitc += 1
+                    time.sleep(3)
                     continue
                 
                 try:
@@ -143,18 +245,25 @@ def outvid():
                     print("[INFO] could not determine # of frames in video")
                     continue
                 
-                frame_index = 0
-                while frame_index<total:
+                loc_index = 0
+                icount = 0
+                while icount < len(df):
                     
                     grabbed,frame = vs.read()
+                    frame = reshapeimg(frame)
                     if grabbed != True:
                         continue
                     
                     if frame_index == 0:
+                        frame_index += 1
                         fourcc = cv2.VideoWriter_fourcc('M','P','4','V')
-                        out = cv2.VideoWriter(basepath+'out+id.mp4',  fourcc, 30, frame.shape[::-1][1:])
+                        out = cv2.VideoWriter(basepath+day+'\\'+'out+id.mp4',  fourcc, 30, size)
                     
-                    df2 = df[df['f']==frame_index]
+                    if loc_index != df.iloc[icount]['f']:
+                        loc_index += 1
+                        continue
+                    
+                    df2 = df[df['f']==loc_index]
                     for _,row in df2.iterrows():
                         _,pid,tlx,tly,brx,bry = row
                         pid,tlx,tly,brx,bry = int(pid),int(tlx),int(tly),int(brx),int(bry)
@@ -165,13 +274,17 @@ def outvid():
                         
                         cv2.putText(frame, str(pid), (int(tlx), int(tly) - 5), cv2.FONT_HERSHEY_SIMPLEX,
                             0.5, (60,180,90), 2)
-                    frame_index += 1
+
                     #out.write(frame)
-                    out.write(cv2.resize(frame,(1000,600),interpolation = cv2.INTER_LINEAR))
-            
+                    out.write(cv2.resize(frame,size,interpolation = cv2.INTER_LINEAR))
+                    icount += 1
+                    loc_index += 1
+                index += 1
+                    
             elif waitc==0:
                 waitc += 1
-                time.sleep(100)
+                print('waiting ',waitc)
+                time.sleep(3)
                 
             else:
                 out.release()

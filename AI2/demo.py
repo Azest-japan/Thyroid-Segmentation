@@ -3,22 +3,21 @@
 
 from __future__ import division, print_function, absolute_import
 
-import os
 import warnings
 import sys
 import cv2
+import time
 import numpy as np
+from datetime import datetime
 #from PIL import Image
 import imutils
 
-import matplotlib.pyplot as plt
 import pandas as pd
 
 if 'c:\\users\\81807\\documents\\RD\\deep_sort' not in sys.path:
     sys.path.append('c:\\users\\81807\\documents\\RD\\deep_sort')
 
 import tensorflow as tf
-from tensorflow import keras
 from deep_sort import preprocessing,nn_matching                                                                        
 from deep_sort.tracker import Tracker
 from deep_sort.track import Track
@@ -116,20 +115,27 @@ def freeze(tracker,metric,vname,loc_no):
     write_json(basepath+'dsfreeze.json',jsontr)
 
 
-def dsort(basepath,sname,df,total,frame_index,pos,metric,tracker,encoder,vs=None,files=None):
+def dsort(folderp,sname,df,total,frame_index,pos,metric,tracker,encoder,vs=None,files=None):
     
     loc_index = 0
+    icount = 0
     pindex = frame_index
-    while frame_index < total+pindex:
+    while icount < len(df):
         
         if vs != None:
             ret, frame = vs.read()  # frame shape 562*1000*3
+            frame = reshapeimg(frame)
+            if loc_index != df.iloc[icount]['f']:
+                loc_index += 1
+                frame_index += 1
+                continue
+            
             if ret != True:
                 frame_index += 1
                 continue
 
         elif '.jpg' in files[frame_index] or '.png' in files[frame_index]:
-            frame = cv2.imread(basepath+'images\\'+files[frame_index])
+            frame = cv2.imread(fullp+files[frame_index])
             frame = reshapeimg(frame)
             
         else:
@@ -146,29 +152,33 @@ def dsort(basepath,sname,df,total,frame_index,pos,metric,tracker,encoder,vs=None
         
         # predict and update
         tracker.predict(frame.shape[:2])
-        m = tracker.update(detections,frame,frame_index,encoder)
+        _ = tracker.update(detections,frame,frame_index,encoder)
         #trinfo = [(tr.track_id,tr.time_since_update) for tr in tracker.tracks]
         
         for track in tracker.tracks:
             bbox = track.to_tlbr()
             pos.append((loc_index,track.track_id,bbox[0],bbox[1],bbox[2],bbox[3]))
        
-        if loc_index%10 == 0 or loc_index == total-1:
+        if icount%10 == 0 or icount == len(df)-1:
+            print(icount)
             df2 = pd.DataFrame(pos)
-            df2.to_csv(basepath+str(sname)+'+id.csv',header=None,index=False,mode='a')
+            df2.to_csv(folderp+sname+'+id.csv',header=None,index=False,mode='a')
             pos = []
             #print(frame_index,len(tracker.tracks))
             
         frame_index += 1 
         loc_index += 1
+        icount += 1
         
     return frame_index,pos,tracker
 
 
-
-def main_dsort(basepath,csvcol,jpath=None):
+def main_dsort(link,day,basepath,boxcol,deepcol,jpath=None):
     global savetr, savemt
    # Definition of the parameters
+   
+    fullp = '/ftp_share/VideoVolume1/'+day+'/'
+    folderp = basepath+day+'\\'
     max_cosine_distance = 0.3
     nn_budget = None
 
@@ -183,50 +193,54 @@ def main_dsort(basepath,csvcol,jpath=None):
     frame_index = 0
     waitc = 0
     pos = []
+
     
     if jpath:
         tracker,metric = loadtr(jpath,tracker,metric)
 
-    while count<csvcol.estimated_document_count():
-        count += 1
-        try:
-            df = pd.read_csv(basepath+str(count)+'.csv',delimiter=',',names=['f','x','y','w','h'])
-            vs = cv2.VideoCapture(basepath+str(count)+'.mp4')
+    while True:
+        boxinfo = boxcol.find_one({'status':0})
         
-        except FileNotFoundError:
-            continue
+        if boxinfo != None:
+            try:
+                df = pd.read_csv(basepath+day+'\\'+boxinfo['name'],delimiter=',',names=['f','x','y','w','h'])
+                vs = cv2.VideoCapture('ftp://admin:admin@'+link+fullp+boxinfo['name'][:-4]+'.avi')
+            
+            except FileNotFoundError:
+                print('File not found')
+                waitc += 1
+                time.sleep(3)
+                continue
+            
+            # try to determine the total number of frames in the video file
+            try:
+                prop = cv2.cv.CV_CAP_PROP_FRAME_COUNT if imutils.is_cv2() \
+                    else cv2.CAP_PROP_FRAME_COUNT
+                total = int(vs.get(prop))
+                print("[INFO] {} total frames in video".format(total),boxinfo['name'])
+            except:
+                print("[INFO] could not determine # of frames in video")
+                total = -1
+            
+            frame_index,pos,tracker = dsort(folderp,boxinfo['name'][:-4],df,total,frame_index,pos,metric,tracker,encoder,vs)
+            savetr = tracker
+            savemt = metric
+            boxcol.update_one({'_id':boxinfo['_id']},{'$set' :{'status':1}})
+            deepcol.insert_one({'name':boxinfo['name'][:-4]+'+id.csv','date':str(datetime.now()),'status':0})
+            print(len(tracker.tracks))
+            print('ok!')
+
+        elif waitc==0:
+            waitc += 1
+            print('waiting ',waitc)
+            time.sleep(3)
         
-        # try to determine the total number of frames in the video file
-        try:
-            prop = cv2.cv.CV_CAP_PROP_FRAME_COUNT if imutils.is_cv2() \
-                else cv2.CAP_PROP_FRAME_COUNT
-            total = int(vs.get(prop))
-            print("[INFO] {} total frames in video".format(total))
-        except:
-            print("[INFO] could not determine # of frames in video")
-            total = -1
-        
-        frame_index,pos,tracker = dsort(basepath,count,df,total,frame_index,pos,metric,tracker,encoder,vs)
-        savetr = tracker
-        savemt = metric
-        print(len(tracker.tracks))
-        print('ok!')
-    print(csvcol.estimated_document_count())
-    if csvcol.estimated_document_count()==0:
-        files = np.sort(os.listdir(basepath+'images'))
-        total = len(files)
-        try:
-            df = pd.read_csv(basepath+'box.csv',delimiter=',',names=['f','x','y','w','h'])
-        except FileNotFoundError:
-            return
-        
-        frame_index,pos,tracker = dsort(basepath,0,df,total,frame_index,pos,metric,tracker,encoder,files=files)
-        
-    else:
-        vs.release()
+        else:
+            break
+            vs.release()
 
 
-def process():
+def process(day='RecordFolder20201005'):
     tf.compat.v1.enable_eager_execution() 
     gpus = tf.config.experimental.list_physical_devices('GPU')
     if gpus:
@@ -239,15 +253,17 @@ def process():
         except RuntimeError as e:
             # Memory growth must be set before GPUs have been initialized
             print(e)
-    pos = []
+            
     basepath = 'C:\\Users\\81807\\Documents\\RD\\realdata\\'
+    link = '192.168.99.101'
     
-    db = dbconnect(dbname='videos')
-    loccol = db['loc']
-    csvcol = db['csv']
-    print(db.collection_names())
-    print(csvcol.estimated_document_count(),loccol.estimated_document_count())
-    main_dsort(basepath,csvcol)
+    
+    boxdb = dbconnect(dbname='boxcsv')
+    boxcol = boxdb[day]
+    deepdb = dbconnect(dbname='deepcsv')
+    deepcol = deepdb[day]
+    
+    main_dsort(link,day,basepath,boxcol,deepcol)
 
 
 
