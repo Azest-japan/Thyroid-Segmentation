@@ -6,8 +6,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import csv
 import json
-import pymongo
-from datetime import datetime
 from scipy.optimize import leastsq
 from sklearn.linear_model import LinearRegression
 
@@ -229,16 +227,17 @@ def showvid(link=None):
     try: 
         while(True):
             ret, frame = cap.read()
+            frame = reshapeimg(frame)
             cv2.imshow('frame',frame)
             if cv2.waitKey(20) & 0xFF == ord('q'):
                 cap.release()
                 cv2.destroyAllWindows()
-                break
+                return frame.shape[:2]
     
     except KeyboardInterrupt:
         cap.release()
         cv2.destroyAllWindows()
-
+        return frame.shape[:2]
 
 
 
