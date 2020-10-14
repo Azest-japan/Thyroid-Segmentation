@@ -9,11 +9,12 @@ import cv2
 import time
 import numpy as np
 from datetime import datetime
+import datetime as dtlib
 #from PIL import Image
 import imutils
 
 import pandas as pd
-
+import pymongo
 if 'c:\\users\\81807\\documents\\RD\\deep_sort' not in sys.path:
     sys.path.append('c:\\users\\81807\\documents\\RD\\deep_sort')
 
@@ -24,8 +25,6 @@ from deep_sort.track import Track
 from tools import generate_detections as gdet
 from deep_sort.detection import Detection 
 from analysis import *
-from stream import dbconnect
-
 
 #import gc
 
@@ -38,9 +37,8 @@ frame_index = -1
 savetr = None
 savemt = None
 
-def loadtr(jpath,tracker,metric):
+def loadtr(jsontr,tracker,metric):
     
-    jsontr = read_json(jpath)
     trs = []    
     
     for trid in jsontr['tracks'].keys():
@@ -57,32 +55,44 @@ def loadtr(jpath,tracker,metric):
         iosb = tuple(tr['iosb'])
         #tr['n_init'] = int(tr['n_init'])
         #tr['maxage'] = int(tr['maxage'])
-        metric.samples[int(trid)] = [np.array(tr['fts'])]
-        tr['fts'] = [np.array(tr['fts'])]
-        
-        track = Track(mean, cov, int(trid), tr['n_init'], tr['max_age'], tr['checkspot'],
+        #metric.samples[int(trid)] = [np.array(tr['fts'])]
+        tr['fts'] = np.array(tr['fts'])
+        track = Track(mean, cov, int(trid), tr['n_init'], tr['maxage'], tr['checkspot'],
                  feature=tr['fts'])
         track.reinit(tr['hits'],tr['age'],tr['tsu'],pastpos,tr['dh'],tr['dhd'],iosb,tr['state'])
-        
         trs.append(track)
     
     middle_check = {}
-    for ntrid,time in jsontr['middle_check']:
-        middle_check[int(ntrid)] = time
+    for ntrid,t in jsontr['middle_check']:
+        middle_check[int(ntrid)] = t
         
     critical_tracks = {}
     for ti_id,val in jsontr['critical_tracks']:
         critical_tracks[int(ti_id)] = [int(val[0]),float(val[1])]
     
-    tracker['tracks'] = trs
-    tracker['middle_check'] = middle_check
-    tracker['critical_tracks'] = critical_tracks
-    tracker['_next_id'] = int(jsontr['next_id'])
+    tracker.tracks = trs
+    tracker.middle_check = middle_check
+    tracker.critical_tracks = critical_tracks
+    tracker._next_id = int(jsontr['next_id'])
+    
+    active_targets = [t.track_id for t in tracker.tracks if t.is_confirmed()]
+    #print('active targets ',active_targets)
+    
+    features, targets = [], []
+    for track in tracker.tracks:
+        if not track.is_confirmed():
+            continue
+        features += track.features
+        targets += [track.track_id for _ in track.features]
+        track.features = []
+    #print('test ',active_targets,targets,np.array(features).shape) 
+    metric.partial_fit(
+        np.asarray(features), np.asarray(targets), active_targets)
     
     return tracker,metric
 
 
-def freeze(tracker,metric,vname,loc_no):
+def freeze(deepstatecol,vidname,camname,tracker,metric,basepath='c:\\users\\81807\\documents\\RD\\realdata\\'):
     jsontr = {}
     trs = {}
     for tr in tracker.tracks:    
@@ -90,8 +100,9 @@ def freeze(tracker,metric,vname,loc_no):
         pastpos = [list(i) for i in savetr.tracks[0].pastpos]
         if tr.track_id in metric.samples.keys():
             fts = metric.samples[tr.track_id][0].tolist()
-            
-        trs[tr.track_id] = {'mean':tr.mean.tolist(),
+        if fts == None or len(fts)==0:
+            fts = tr.features
+        trs[str(tr.track_id)] = {'mean':tr.mean.tolist(),
                             'cov':tr.covariance.tolist(),
                             'hits':tr.hits,
                             'age':tr.age,
@@ -106,39 +117,45 @@ def freeze(tracker,metric,vname,loc_no):
                             'state':tr.state,
                             'n_init':tr._n_init,
                             'maxage':tr._max_age}
-
+    
+    jsontr['vidname'] = vidname
+    jsontr['camname'] = camname
     jsontr['tracks'] = trs
     jsontr['middle_check'] = tracker.middle_check
     jsontr['critical_tracks'] = tracker.critical_tracks
     jsontr['next_id'] = tracker._next_id
     
-    write_json(basepath+'dsfreeze.json',jsontr)
+    if deepstatecol.find_one({'camname':camname}):
+        deepstatecol.update_one({'camname':camname},{'$set':{'vidname':vidname,'modified_time':datetime.now(),'tracks':trs,'middle_check':tracker.middle_check,'critical_tracks':tracker.critical_tracks,'next_id':tracker._next_id}})
+    else:
+        deepstatecol.insert_one({'camname':camname,'vidname':vidname,'modified_time':datetime.now(),'tracks':trs,'middle_check':tracker.middle_check,'critical_tracks':tracker.critical_tracks,'next_id':tracker._next_id})
+    write_json(basepath+camname+'.json',jsontr)
 
 
-def dsort(folderp,sname,df,total,frame_index,pos,metric,tracker,encoder,vs=None,files=None):
+def dsort(deepdatacol,vname,df,total,frame_index,metric,tracker,encoder,vs=None,files=None):
     
     loc_index = 0
     icount = 0
-    pindex = frame_index
+    pos = []
+
     while icount < len(df):
         
         if vs != None:
             ret, frame = vs.read()  # frame shape 562*1000*3
+            
+            if ret != True:
+                icount += 1
+                frame_index += 1
+                continue
+            
             frame = reshapeimg(frame)
             if loc_index != df.iloc[icount]['f']:
                 loc_index += 1
                 frame_index += 1
                 continue
             
-            if ret != True:
-                frame_index += 1
-                continue
-
-        elif '.jpg' in files[frame_index] or '.png' in files[frame_index]:
-            frame = cv2.imread(fullp+files[frame_index])
-            frame = reshapeimg(frame)
-            
         else:
+            icount += 1
             frame_index+=1
             continue
         
@@ -157,28 +174,27 @@ def dsort(folderp,sname,df,total,frame_index,pos,metric,tracker,encoder,vs=None,
         
         for track in tracker.tracks:
             bbox = track.to_tlbr()
-            pos.append((loc_index,track.track_id,bbox[0],bbox[1],bbox[2],bbox[3]))
-       
-        if icount%10 == 0 or icount == len(df)-1:
-            print(icount)
-            df2 = pd.DataFrame(pos)
-            df2.to_csv(folderp+sname+'+id.csv',header=None,index=False,mode='a')
-            pos = []
-            #print(frame_index,len(tracker.tracks))
+            pos.append({'vidname':vname,'f':loc_index,'tid':track.track_id,'tx':bbox[0],'ty':bbox[1],'bx':bbox[2],'by':bbox[3]})
+        
+        
+        if len(pos) > 1:
+            deepdatacol.insert_many(pos)
             
+        elif len(pos) == 1:
+            deepdatacol.insert_one(pos[0])
+        
         frame_index += 1 
         loc_index += 1
         icount += 1
+        pos = []
         
-    return frame_index,pos,tracker
+    return frame_index,tracker
 
 
-def main_dsort(link,day,basepath,boxcol,deepcol,jpath=None):
+def main_dsort(ftplink,day,vidcol,boxcol,boxdatacol,deepcol,deepdatacol,deepstatecol,jpath):
     global savetr, savemt
    # Definition of the parameters
    
-    fullp = '/ftp_share/VideoVolume1/'+day+'/'
-    folderp = basepath+day+'\\'
     max_cosine_distance = 0.3
     nn_budget = None
 
@@ -189,44 +205,86 @@ def main_dsort(link,day,basepath,boxcol,deepcol,jpath=None):
     metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
     tracker = Tracker(metric)
     total = -1
-    count = 0
     frame_index = 0
     waitc = 0
-    pos = []
-
+    boxinfo = None
     
-    if jpath:
-        tracker,metric = loadtr(jpath,tracker,metric)
-
+    unfinished = deepcol.find_one({'enddate':{'$exists':False}})
+    if unfinished != None:
+        deepdatacol.delete_many({'vidname':unfinished['vidname']})
+        boxinfo = boxcol.find_one({'vidname':unfinished['vidname']}) 
+        deepcol.delete_one({'vidname':unfinished['vidname']})
+        
     while True:
-        boxinfo = boxcol.find_one({'status':0})
+
+        if boxinfo == None:
+            boxinfo = boxcol.find_one({'status':0,'dayname':day})
+        
+        vinfo = vidcol.find_one({'status':1,'vidname':boxinfo['vidname']})
+        
+        if boxinfo['start']==0:
+            _next_id = tracker._next_id
+            metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
+            tracker = Tracker(metric,_next_id=_next_id)
+        
+        elif vinfo == None:
+            if waitc > 1:
+                break
+            waitc += 1
+            boxinfo = None
+            time.sleep(3)
+
+        else:
+            print('inside jpath loading...')
+            print(vinfo['vidname'],vinfo['camname'])
+            vprev = vidcol.find_one({'status':2,'camname':vinfo['camname'],'end_time':{'$gte':vinfo['start_time']-dtlib.timedelta(seconds=1),'$lte':vinfo['start_time']}},sort=[('end_time',pymongo.DESCENDING)])
+            #fulljpath = jpath + vinfo['camname']+'.json'
+            
+            jsontr = deepstatecol.find_one({'camname':vinfo['camname']})
+            print('jsontr ',jsontr['vidname'])
+            print(vprev['vidname'])
+            
+            if vprev != None and jsontr['vidname']==vprev['vidname']:
+                tracker,metric = loadtr(jsontr,tracker,metric)
+            else:
+                print('insufficient information ')
+                break
         
         if boxinfo != None:
+            print('deepsort ',boxinfo['vidname'],vinfo['camname'])
             try:
-                df = pd.read_csv(basepath+day+'\\'+boxinfo['name'],delimiter=',',names=['f','x','y','w','h'])
-                vs = cv2.VideoCapture('ftp://admin:admin@'+link+fullp+boxinfo['name'][:-4]+'.avi')
+                df = pd.DataFrame([[r['f'],r['x'],r['y'],r['w'],r['h']] for r in boxdatacol.find({'vidname':boxinfo['vidname']})],columns=['f','x','y','w','h'])
+                vs = cv2.VideoCapture(ftplink+boxinfo['vidname'])
             
-            except FileNotFoundError:
+            except Exception:
                 print('File not found')
                 waitc += 1
                 time.sleep(3)
                 continue
+            
             
             # try to determine the total number of frames in the video file
             try:
                 prop = cv2.cv.CV_CAP_PROP_FRAME_COUNT if imutils.is_cv2() \
                     else cv2.CAP_PROP_FRAME_COUNT
                 total = int(vs.get(prop))
-                print("[INFO] {} total frames in video".format(total),boxinfo['name'])
+                print("[INFO] {} total frames in video".format(total),boxinfo['vidname'])
+                deepcol.insert_one({'vidname':boxinfo['vidname'],'startdate':str(datetime.now()),'status':0})
+                
             except:
                 print("[INFO] could not determine # of frames in video")
                 total = -1
             
-            frame_index,pos,tracker = dsort(folderp,boxinfo['name'][:-4],df,total,frame_index,pos,metric,tracker,encoder,vs)
+            frame_index,tracker = dsort(deepdatacol,boxinfo['vidname'],df,total,frame_index,metric,tracker,encoder,vs)
             savetr = tracker
             savemt = metric
+            freeze(deepstatecol,vinfo['vidname'],vinfo['camname'],tracker,metric)
+            
             boxcol.update_one({'_id':boxinfo['_id']},{'$set' :{'status':1}})
-            deepcol.insert_one({'name':boxinfo['name'][:-4]+'+id.csv','date':str(datetime.now()),'status':0})
+            vidcol.update_one({'vidname':boxinfo['vidname']},{'$set' :{'status':2}})
+            deepcol.update_one({'vidname':boxinfo['vidname']},{'$set':{'enddate':str(datetime.now())}})
+            boxinfo = None
+            
             print(len(tracker.tracks))
             print('ok!')
 
@@ -240,7 +298,7 @@ def main_dsort(link,day,basepath,boxcol,deepcol,jpath=None):
             vs.release()
 
 
-def process(day='RecordFolder20201005'):
+def process(ftplink,day,vidcol,boxcol,boxdatacol,deepcol,deepdatacol,deepstatecol,jpath = 'c:\\users\\81807\\documents\\RD\\realdata\\'):
     tf.compat.v1.enable_eager_execution() 
     gpus = tf.config.experimental.list_physical_devices('GPU')
     if gpus:
@@ -254,16 +312,8 @@ def process(day='RecordFolder20201005'):
             # Memory growth must be set before GPUs have been initialized
             print(e)
             
-    basepath = 'C:\\Users\\81807\\Documents\\RD\\realdata\\'
-    link = '192.168.99.101'
     
-    
-    boxdb = dbconnect(dbname='boxcsv')
-    boxcol = boxdb[day]
-    deepdb = dbconnect(dbname='deepcsv')
-    deepcol = deepdb[day]
-    
-    main_dsort(link,day,basepath,boxcol,deepcol)
+    main_dsort(ftplink,day,vidcol,boxcol,boxdatacol,deepcol,deepdatacol,deepstatecol,jpath='c:\\users\\81807\\documents\\RD\\realdata\\')
 
 
 
